@@ -1,0 +1,2 @@
+# Requerimientos para el formulario médico SSMO
+tkinter  # Biblioteca GUI que viene incluida con Python
