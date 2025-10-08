@@ -220,9 +220,15 @@ def inject_globals():
     return {"patologias_catalogo": PATOLOGIAS_GES}
 
 
-@app.before_first_request
+_db_initialized = False
+
+
+@app.before_request
 def inicializar_db():
-    db.create_all()
+    global _db_initialized
+    if not _db_initialized:
+        db.create_all()
+        _db_initialized = True
 
 
 if __name__ == "__main__":
