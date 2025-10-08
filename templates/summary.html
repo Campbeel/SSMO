@@ -9,7 +9,10 @@
         <h2>Plantilla de registro</h2>
         <p>Formulario registrado el {{ registro.created_at.strftime('%d/%m/%Y a las %H:%M') }}</p>
       </div>
-      <a class="secondary" href="{{ url_for('listar_formularios') }}">Volver al listado</a>
+      <div class="summary-actions">
+        <a class="secondary" href="{{ url_for('listar_formularios') }}">Volver al listado</a>
+        <a class="secondary" href="{{ url_for('descargar_pdf', form_id=registro.id) }}">Descargar PDF</a>
+      </div>
     </header>
 
     <section class="summary-section">
