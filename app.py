@@ -1,12 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from flask import Flask, flash, redirect, render_template, request, url_for
+from flask import Flask, flash, redirect, render_template, request, send_file, url_for
 from flask_sqlalchemy import SQLAlchemy
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "ssmo.db"
@@ -171,6 +177,132 @@ def _rut_valido(rut: str) -> bool:
     return dv == digito_esperado
 
 
+def _parrafo(texto: str, *, estilo: ParagraphStyle) -> Paragraph:
+    """Normaliza texto para ser usado en el PDF."""
+
+    contenido = (texto or "—").replace("\n", "<br/>")
+    return Paragraph(contenido, estilo)
+
+
+def generar_pdf_formulario(registro: MedicalForm) -> BytesIO:
+    """Genera un PDF con los datos del formulario almacenado."""
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=18 * mm,
+        rightMargin=18 * mm,
+        topMargin=18 * mm,
+        bottomMargin=18 * mm,
+    )
+    styles = getSampleStyleSheet()
+    body_style: ParagraphStyle = styles["BodyText"].clone("BodyTextSmall")
+    body_style.fontSize = 9
+    body_style.leading = 12
+    heading_style = styles["Heading2"].clone("Heading2Small")
+    heading_style.fontSize = 12
+    heading_style.leading = 16
+
+    story = [
+        Paragraph("Solicitud de interconsulta o derivación", styles["Title"]),
+        Spacer(1, 6),
+        Paragraph(
+            f"Registro generado el {registro.created_at.strftime('%d/%m/%Y %H:%M')}",
+            styles["Normal"],
+        ),
+        Spacer(1, 12),
+    ]
+
+    def tabla_campos(titulo: str, campos: List[tuple[str, str]]):
+        story.append(Paragraph(titulo, heading_style))
+        story.append(Spacer(1, 4))
+        filas: List[List[Paragraph | str]] = [["Campo", "Valor"]]
+        for etiqueta, valor in campos:
+            filas.append([etiqueta, _parrafo(valor, estilo=body_style)])
+        tabla = Table(filas, colWidths=[60 * mm, 110 * mm])
+        tabla.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E4EEF9")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#12385B")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F7FAFD")]),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#9CB3C9")),
+                    ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#51749C")),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ]
+            )
+        )
+        story.append(tabla)
+        story.append(Spacer(1, 12))
+
+    tabla_campos(
+        "Antecedentes del paciente",
+        [
+            ("Servicio de salud", registro.servicio_salud),
+            ("Establecimiento", registro.establecimiento),
+            ("Especialidad", registro.especialidad),
+            ("Unidad", registro.unidad),
+            ("Nombre", registro.nombre),
+            ("Historia clínica", registro.historia_clinica),
+            ("RUT paciente", registro.rut),
+            ("RUT apoderado", registro.rut_padre),
+            ("Sexo", registro.sexo),
+            ("Fecha de nacimiento", registro.fecha_nacimiento),
+            ("Edad", registro.edad),
+            ("Domicilio", registro.domicilio),
+            ("Comuna", registro.comuna),
+            (
+                "Teléfonos",
+                " / ".join(filter(None, [registro.telefono1, registro.telefono2])) or "—",
+            ),
+            (
+                "Correos electrónicos",
+                " / ".join(filter(None, [registro.correo1, registro.correo2])) or "—",
+            ),
+        ],
+    )
+
+    patologias = registro.patologias_ges_lista()
+    patologias_texto = ", ".join(patologias) if patologias else "Sin patologías registradas"
+
+    tabla_campos(
+        "Información médica",
+        [
+            ("Establecimiento de derivación", registro.establecimiento_derivacion),
+            ("Grupo poblacional", registro.grupo_poblacional),
+            ("Tipo de consulta", registro.tipo_consulta),
+            ("Terapias específicas", registro.tiene_terapias),
+            ("Detalle terapias", registro.terapias_otro),
+            ("Hipótesis diagnóstica", registro.hipotesis_diagnostico),
+            ("¿Caso GES?", registro.es_ges),
+            ("Fundamento diagnóstico", registro.fundamento_diagnostico),
+            ("Exámenes realizados", registro.examenes_realizados),
+            ("Patologías GES", patologias_texto),
+        ],
+    )
+
+    tabla_campos(
+        "Profesional responsable",
+        [
+            ("Nombre del médico", registro.nombre_medico),
+            ("RUT del médico", registro.rut_medico),
+        ],
+    )
+
+    story.append(Paragraph("Resumen textual", heading_style))
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(registro.resumen_texto().replace("\n", "<br/>"), body_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+
 @app.route("/", methods=["GET", "POST"])
 def formulario():
     if request.method == "POST":
@@ -213,6 +345,19 @@ def listar_formularios():
 def ver_formulario(form_id: int):
     registro: Optional[MedicalForm] = MedicalForm.query.get_or_404(form_id)
     return render_template("summary.html", registro=registro)
+
+
+@app.route("/formularios/<int:form_id>/pdf")
+def descargar_pdf(form_id: int):
+    registro: Optional[MedicalForm] = MedicalForm.query.get_or_404(form_id)
+    pdf_buffer = generar_pdf_formulario(registro)
+    filename = f"formulario-{registro.id}.pdf"
+    return send_file(
+        pdf_buffer,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=filename,
+    )
 
 
 @app.context_processor

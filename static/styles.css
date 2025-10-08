@@ -244,6 +244,13 @@ a.secondary:hover {
   margin-bottom: 2rem;
 }
 
+.summary-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .summary-section {
   margin-bottom: 2rem;
 }
