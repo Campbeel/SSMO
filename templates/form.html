@@ -49,11 +49,17 @@
         </label>
         <label>
           <span>RUT paciente</span>
-          <input type="text" name="rut" value="{{ campos.rut }}" placeholder="11111111-1" />
+          <input type="text" name="rut" value="{{ campos.rut }}" placeholder="11.111.111-1" data-rut />
+          <small class="field-note">Si el RUT termina en K, ingrese 0. El sistema lo convertirá automáticamente.</small>
         </label>
-        <label>
-          <span>RUT apoderado</span>
-          <input type="text" name="rut_padre" value="{{ campos.rut_padre }}" placeholder="22222222-2" />
+        <label class="checkbox-inline">
+          <input type="checkbox" id="menor-edad" {% if campos.rut_padre %}checked{% endif %} />
+          <span>Paciente menor de edad</span>
+        </label>
+        <label data-menor-field {% if not campos.rut_padre %}hidden{% endif %}>
+          <span>RUT apoderado/padre</span>
+          <input type="text" name="rut_padre" value="{{ campos.rut_padre }}" placeholder="22.222.222-2" data-rut />
+          <small class="field-note">Si el RUT termina en K, ingrese 0. El sistema lo convertirá automáticamente.</small>
         </label>
         <label>
           <span>Sexo</span>
@@ -70,7 +76,7 @@
         </label>
         <label>
           <span>Edad</span>
-          <input type="number" min="0" name="edad" value="{{ campos.edad }}" />
+          <input type="number" min="0" name="edad" value="{{ campos.edad }}" readonly />
         </label>
         <label>
           <span>Domicilio</span>
@@ -78,7 +84,12 @@
         </label>
         <label>
           <span>Comuna</span>
-          <input type="text" name="comuna" value="{{ campos.comuna }}" />
+          <select name="comuna">
+            <option value="" {% if not campos.comuna %}selected{% endif %}>Seleccione una comuna</option>
+            {% for comuna in comunas %}
+              <option value="{{ comuna }}" {% if campos.comuna == comuna %}selected{% endif %}>{{ comuna }}</option>
+            {% endfor %}
+          </select>
         </label>
         <label>
           <span>Teléfono 1</span>
@@ -114,13 +125,20 @@
             <option value="No" {% if campos.grupo_poblacional == 'No' %}selected{% endif %}>No</option>
           </select>
         </label>
+        {% set consulta_seleccion = campos.tipo_consulta if campos.tipo_consulta in tipos_consulta else ('Otro' if campos.tipo_consulta and campos.tipo_consulta.startswith('Otro') else '') %}
+        {% set consulta_detalle = campos.tipo_consulta_detalle if campos.tipo_consulta_detalle is defined and campos.tipo_consulta_detalle else (campos.tipo_consulta.split('Otro - ', 1)[1] if consulta_seleccion == 'Otro' and ' - ' in campos.tipo_consulta else '') %}
         <label>
           <span>Tipo de consulta</span>
-          <select name="tipo_consulta">
-            <option value="" {% if not campos.tipo_consulta %}selected{% endif %}></option>
-            <option value="Individual" {% if campos.tipo_consulta == 'Individual' %}selected{% endif %}>Individual</option>
-            <option value="Grupal" {% if campos.tipo_consulta == 'Grupal' %}selected{% endif %}>Grupal</option>
+          <select name="tipo_consulta" data-consulta-selector>
+            <option value="" {% if not consulta_seleccion %}selected{% endif %}></option>
+            {% for opcion in tipos_consulta %}
+              <option value="{{ opcion }}" {% if consulta_seleccion == opcion %}selected{% endif %}>{{ opcion }}</option>
+            {% endfor %}
           </select>
+        </label>
+        <label class="wide" data-consulta-otro {% if consulta_seleccion != 'Otro' %}hidden{% endif %}>
+          <span>Detalle del tipo de consulta</span>
+          <input type="text" name="tipo_consulta_otro" value="{{ consulta_detalle }}" placeholder="Especifique el motivo" />
         </label>
         <label>
           <span>¿Requiere terapias específicas?</span>
@@ -180,7 +198,8 @@
         </label>
         <label>
           <span>RUT médico</span>
-          <input type="text" name="rut_medico" value="{{ campos.rut_medico }}" placeholder="33333333-3" />
+          <input type="text" name="rut_medico" value="{{ campos.rut_medico }}" placeholder="33.333.333-3" data-rut />
+          <small class="field-note">Si el RUT termina en K, ingrese 0. El sistema lo convertirá automáticamente.</small>
         </label>
       </div>
     </section>

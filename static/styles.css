@@ -103,6 +103,26 @@ h2 {
   font-weight: 600;
 }
 
+.field-note {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 0.25rem;
+  display: block;
+}
+
+.checkbox-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  flex-direction: row;
+}
+
+.checkbox-inline input {
+  width: 18px;
+  height: 18px;
+}
+
 .field-grid input,
 .field-grid select,
 .field-grid textarea,
