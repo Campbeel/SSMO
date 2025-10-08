@@ -1,18 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
-from io import BytesIO
+from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from flask import Flask, flash, redirect, render_template, request, send_file, url_for
+from flask import Flask, flash, redirect, render_template, request, url_for
 from flask_sqlalchemy import SQLAlchemy
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.lib.units import mm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "ssmo.db"
@@ -136,11 +130,84 @@ PATOLOGIAS_GES: List[str] = [
     "Trastorno del espectro autista",
 ]
 
+COMUNAS: List[str] = [
+    "Las Condes",
+    "Lo Barnechea",
+    "La Reina",
+    "Macul",
+    "Ñuñoa",
+    "Peñalolén",
+    "Providencia",
+    "Vitacura",
+    "Isla de Pascua",
+]
+
+TIPOS_CONSULTA: List[str] = [
+    "Confirmación diagnóstica",
+    "Realizar tratamiento",
+    "Seguimiento",
+    "Otro",
+]
+
+
+def _limpiar_rut(rut: str) -> str:
+    return "".join(ch for ch in rut if ch.isdigit() or ch in {"K", "k"})
+
+
+def _digito_verificador(cuerpo: str) -> str:
+    suma = 0
+    factor = 2
+    for digito in reversed(cuerpo):
+        suma += int(digito) * factor
+        factor = 2 if factor == 7 else factor + 1
+    resto = suma % 11
+    if resto == 0:
+        return "0"
+    if resto == 1:
+        return "K"
+    return str(11 - resto)
+
+
+def _normalizar_rut(rut: str) -> str:
+    if not rut:
+        return ""
+    limpio = _limpiar_rut(rut)
+    if len(limpio) < 2 or not limpio[:-1].isdigit():
+        return rut.strip()
+    cuerpo = limpio[:-1]
+    dv = limpio[-1].upper()
+    esperado = _digito_verificador(cuerpo)
+    if dv == "0" and esperado == "K":
+        dv = "K"
+    cuerpo_formateado = f"{int(cuerpo):,}".replace(",", ".")
+    return f"{cuerpo_formateado}-{dv}"
+
+
+def _calcular_edad(fecha_nacimiento: str) -> str:
+    if not fecha_nacimiento:
+        return ""
+    try:
+        nacimiento = datetime.strptime(fecha_nacimiento, "%Y-%m-%d").date()
+    except ValueError:
+        return ""
+    hoy: date = datetime.utcnow().date()
+    edad = hoy.year - nacimiento.year - (
+        (hoy.month, hoy.day) < (nacimiento.month, nacimiento.day)
+    )
+    return str(max(0, edad))
+
 
 def _extraer_datos_formulario(form_data) -> Dict[str, Optional[str]]:
     datos = {campo: form_data.get(campo) or "" for campo in FORM_FIELDS}
     patologias = form_data.getlist("patologias_ges")
     datos["patologias_ges"] = ";".join(patologias)
+    datos["edad"] = _calcular_edad(datos.get("fecha_nacimiento", ""))
+    tipo_consulta = form_data.get("tipo_consulta") or ""
+    detalle_otro = form_data.get("tipo_consulta_otro", "").strip()
+    datos["tipo_consulta_detalle"] = detalle_otro if tipo_consulta == "Otro" else ""
+    datos["tipo_consulta"] = tipo_consulta
+    for rut_field in ("rut", "rut_padre", "rut_medico"):
+        datos[rut_field] = _normalizar_rut(datos.get(rut_field, ""))
     return datos
 
 
@@ -161,146 +228,15 @@ def _validar_datos(datos: Dict[str, str]) -> List[str]:
 def _rut_valido(rut: str) -> bool:
     """Valida RUT chileno considerando dígito verificador."""
 
-    rut = rut.replace(".", "").replace("-", "").upper()
-    if not rut[:-1].isdigit() or len(rut) < 8:
+    limpio = _limpiar_rut(rut).upper()
+    if len(limpio) < 2 or not limpio[:-1].isdigit():
         return False
-    cuerpo = rut[:-1]
-    dv = rut[-1]
-
-    suma = 0
-    factor = 2
-    for digito in reversed(cuerpo):
-        suma += int(digito) * factor
-        factor = 2 if factor == 7 else factor + 1
-    resto = suma % 11
-    digito_esperado = "0" if resto == 0 else "K" if resto == 1 else str(11 - resto)
-    return dv == digito_esperado
-
-
-def _parrafo(texto: str, *, estilo: ParagraphStyle) -> Paragraph:
-    """Normaliza texto para ser usado en el PDF."""
-
-    contenido = (texto or "—").replace("\n", "<br/>")
-    return Paragraph(contenido, estilo)
-
-
-def generar_pdf_formulario(registro: MedicalForm) -> BytesIO:
-    """Genera un PDF con los datos del formulario almacenado."""
-
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        leftMargin=18 * mm,
-        rightMargin=18 * mm,
-        topMargin=18 * mm,
-        bottomMargin=18 * mm,
-    )
-    styles = getSampleStyleSheet()
-    body_style: ParagraphStyle = styles["BodyText"].clone("BodyTextSmall")
-    body_style.fontSize = 9
-    body_style.leading = 12
-    heading_style = styles["Heading2"].clone("Heading2Small")
-    heading_style.fontSize = 12
-    heading_style.leading = 16
-
-    story = [
-        Paragraph("Solicitud de interconsulta o derivación", styles["Title"]),
-        Spacer(1, 6),
-        Paragraph(
-            f"Registro generado el {registro.created_at.strftime('%d/%m/%Y %H:%M')}",
-            styles["Normal"],
-        ),
-        Spacer(1, 12),
-    ]
-
-    def tabla_campos(titulo: str, campos: List[tuple[str, str]]):
-        story.append(Paragraph(titulo, heading_style))
-        story.append(Spacer(1, 4))
-        filas: List[List[Paragraph | str]] = [["Campo", "Valor"]]
-        for etiqueta, valor in campos:
-            filas.append([etiqueta, _parrafo(valor, estilo=body_style)])
-        tabla = Table(filas, colWidths=[60 * mm, 110 * mm])
-        tabla.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E4EEF9")),
-                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#12385B")),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F7FAFD")]),
-                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#9CB3C9")),
-                    ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#51749C")),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ]
-            )
-        )
-        story.append(tabla)
-        story.append(Spacer(1, 12))
-
-    tabla_campos(
-        "Antecedentes del paciente",
-        [
-            ("Servicio de salud", registro.servicio_salud),
-            ("Establecimiento", registro.establecimiento),
-            ("Especialidad", registro.especialidad),
-            ("Unidad", registro.unidad),
-            ("Nombre", registro.nombre),
-            ("Historia clínica", registro.historia_clinica),
-            ("RUT paciente", registro.rut),
-            ("RUT apoderado", registro.rut_padre),
-            ("Sexo", registro.sexo),
-            ("Fecha de nacimiento", registro.fecha_nacimiento),
-            ("Edad", registro.edad),
-            ("Domicilio", registro.domicilio),
-            ("Comuna", registro.comuna),
-            (
-                "Teléfonos",
-                " / ".join(filter(None, [registro.telefono1, registro.telefono2])) or "—",
-            ),
-            (
-                "Correos electrónicos",
-                " / ".join(filter(None, [registro.correo1, registro.correo2])) or "—",
-            ),
-        ],
-    )
-
-    patologias = registro.patologias_ges_lista()
-    patologias_texto = ", ".join(patologias) if patologias else "Sin patologías registradas"
-
-    tabla_campos(
-        "Información médica",
-        [
-            ("Establecimiento de derivación", registro.establecimiento_derivacion),
-            ("Grupo poblacional", registro.grupo_poblacional),
-            ("Tipo de consulta", registro.tipo_consulta),
-            ("Terapias específicas", registro.tiene_terapias),
-            ("Detalle terapias", registro.terapias_otro),
-            ("Hipótesis diagnóstica", registro.hipotesis_diagnostico),
-            ("¿Caso GES?", registro.es_ges),
-            ("Fundamento diagnóstico", registro.fundamento_diagnostico),
-            ("Exámenes realizados", registro.examenes_realizados),
-            ("Patologías GES", patologias_texto),
-        ],
-    )
-
-    tabla_campos(
-        "Profesional responsable",
-        [
-            ("Nombre del médico", registro.nombre_medico),
-            ("RUT del médico", registro.rut_medico),
-        ],
-    )
-
-    story.append(Paragraph("Resumen textual", heading_style))
-    story.append(Spacer(1, 4))
-    story.append(Paragraph(registro.resumen_texto().replace("\n", "<br/>"), body_style))
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
+    cuerpo = limpio[:-1]
+    dv = limpio[-1]
+    esperado = _digito_verificador(cuerpo)
+    if dv == "0" and esperado == "K":
+        dv = "K"
+    return esperado == dv
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -316,9 +252,16 @@ def formulario():
                 "form.html",
                 campos=datos,
                 patologias=PATOLOGIAS_GES,
+                comunas=COMUNAS,
+                tipos_consulta=TIPOS_CONSULTA,
                 errores=errores,
             )
 
+        detalle_otro = datos.pop("tipo_consulta_detalle", "")
+        if datos.get("tipo_consulta") == "Otro" and detalle_otro:
+            datos["tipo_consulta"] = f"Otro - {detalle_otro}"
+        for rut_field in ("rut", "rut_padre", "rut_medico"):
+            datos[rut_field] = _normalizar_rut(datos.get(rut_field, ""))
         registro = MedicalForm(**datos)
         db.session.add(registro)
         db.session.commit()
@@ -327,10 +270,13 @@ def formulario():
 
     valores_iniciales = {campo: "" for campo in FORM_FIELDS}
     valores_iniciales["servicio_salud"] = "Metropolitano Oriente"
+    valores_iniciales["tipo_consulta_detalle"] = ""
     return render_template(
         "form.html",
         campos=valores_iniciales,
         patologias=PATOLOGIAS_GES,
+        comunas=COMUNAS,
+        tipos_consulta=TIPOS_CONSULTA,
         errores=[],
     )
 
@@ -347,22 +293,13 @@ def ver_formulario(form_id: int):
     return render_template("summary.html", registro=registro)
 
 
-@app.route("/formularios/<int:form_id>/pdf")
-def descargar_pdf(form_id: int):
-    registro: Optional[MedicalForm] = MedicalForm.query.get_or_404(form_id)
-    pdf_buffer = generar_pdf_formulario(registro)
-    filename = f"formulario-{registro.id}.pdf"
-    return send_file(
-        pdf_buffer,
-        mimetype="application/pdf",
-        as_attachment=True,
-        download_name=filename,
-    )
-
-
 @app.context_processor
 def inject_globals():
-    return {"patologias_catalogo": PATOLOGIAS_GES}
+    return {
+        "patologias_catalogo": PATOLOGIAS_GES,
+        "comunas_catalogo": COMUNAS,
+        "tipos_consulta_catalogo": TIPOS_CONSULTA,
+    }
 
 
 _db_initialized = False
