@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+
+{% block title %}Plantilla generada · SSMO{% endblock %}
+
+{% block content %}
+  <article class="summary">
+    <header class="summary-header">
+      <div>
+        <h2>Plantilla de registro</h2>
+        <p>Formulario registrado el {{ registro.created_at.strftime('%d/%m/%Y a las %H:%M') }}</p>
+      </div>
+      <a class="secondary" href="{{ url_for('listar_formularios') }}">Volver al listado</a>
+    </header>
+
+    <section class="summary-section">
+      <h3>Datos personales</h3>
+      <dl>
+        <div><dt>Servicio de salud</dt><dd>{{ registro.servicio_salud or '—' }}</dd></div>
+        <div><dt>Establecimiento</dt><dd>{{ registro.establecimiento or '—' }}</dd></div>
+        <div><dt>Especialidad</dt><dd>{{ registro.especialidad or '—' }}</dd></div>
+        <div><dt>Unidad</dt><dd>{{ registro.unidad or '—' }}</dd></div>
+        <div><dt>Nombre</dt><dd>{{ registro.nombre }}</dd></div>
+        <div><dt>Historia clínica</dt><dd>{{ registro.historia_clinica or '—' }}</dd></div>
+        <div><dt>RUT paciente</dt><dd>{{ registro.rut or '—' }}</dd></div>
+        <div><dt>RUT apoderado</dt><dd>{{ registro.rut_padre or '—' }}</dd></div>
+        <div><dt>Sexo</dt><dd>{{ registro.sexo or '—' }}</dd></div>
+        <div><dt>Fecha de nacimiento</dt><dd>{{ registro.fecha_nacimiento or '—' }}</dd></div>
+        <div><dt>Edad</dt><dd>{{ registro.edad or '—' }}</dd></div>
+        <div><dt>Domicilio</dt><dd>{{ registro.domicilio or '—' }}</dd></div>
+        <div><dt>Comuna</dt><dd>{{ registro.comuna or '—' }}</dd></div>
+        <div><dt>Teléfonos</dt><dd>{{ registro.telefono1 or '—' }}{% if registro.telefono2 %} / {{ registro.telefono2 }}{% endif %}</dd></div>
+        <div><dt>Correos</dt><dd>{{ registro.correo1 or '—' }}{% if registro.correo2 %} / {{ registro.correo2 }}{% endif %}</dd></div>
+      </dl>
+    </section>
+
+    <section class="summary-section">
+      <h3>Información médica</h3>
+      <dl>
+        <div><dt>Establecimiento derivación</dt><dd>{{ registro.establecimiento_derivacion or '—' }}</dd></div>
+        <div><dt>Grupo poblacional</dt><dd>{{ registro.grupo_poblacional or '—' }}</dd></div>
+        <div><dt>Tipo de consulta</dt><dd>{{ registro.tipo_consulta or '—' }}</dd></div>
+        <div><dt>Terapias específicas</dt><dd>{{ registro.tiene_terapias or '—' }}</dd></div>
+        <div><dt>Detalle terapias</dt><dd>{{ registro.terapias_otro or '—' }}</dd></div>
+        <div><dt>Hipótesis diagnóstica</dt><dd>{{ registro.hipotesis_diagnostico or '—' }}</dd></div>
+        <div><dt>¿Caso GES?</dt><dd>{{ registro.es_ges or '—' }}</dd></div>
+        <div><dt>Fundamento diagnóstico</dt><dd>{{ registro.fundamento_diagnostico or '—' }}</dd></div>
+        <div><dt>Exámenes realizados</dt><dd>{{ registro.examenes_realizados or '—' }}</dd></div>
+        <div><dt>Patologías GES</dt>
+          <dd>
+            {% if registro.patologias_ges_lista() %}
+              <ul>
+                {% for patologia in registro.patologias_ges_lista() %}
+                  <li>{{ patologia }}</li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              Sin patologías registradas.
+            {% endif %}
+          </dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="summary-section">
+      <h3>Profesional responsable</h3>
+      <dl>
+        <div><dt>Nombre médico</dt><dd>{{ registro.nombre_medico or '—' }}</dd></div>
+        <div><dt>RUT médico</dt><dd>{{ registro.rut_medico or '—' }}</dd></div>
+      </dl>
+    </section>
+
+    <section class="summary-section">
+      <h3>Texto para copiar</h3>
+      <textarea readonly rows="12" class="summary-text">{{ registro.resumen_texto() }}</textarea>
+    </section>
+  </article>
+{% endblock %}

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}SSMO - Formulario Médico{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css" integrity="sha512-NhSC1YmyruXifcj/KFRWoC561YpHpc5JtzgvM9q4CPY/c/pXHi1S3FoZP4GkJcSdOkZ2z8I1w4qIu9hKkR3oyg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="container">
+        <h1>Servicio de Salud Metropolitano Oriente</h1>
+        <nav>
+          <a href="{{ url_for('formulario') }}">Nuevo formulario</a>
+          <a href="{{ url_for('listar_formularios') }}">Formularios guardados</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <ul class="flash-messages">
+            {% for category, message in messages %}
+              <li class="flash-message flash-{{ category }}">{{ message }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="app-footer">
+      <div class="container">
+        <p>SSMO · Gestión de formularios médicos</p>
+      </div>
+    </footer>
+  </body>
+</html>

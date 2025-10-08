@@ -1,0 +1,193 @@
+{% extends 'base.html' %}
+
+{% block title %}Nuevo formulario · SSMO{% endblock %}
+
+{% block content %}
+  <h2>Ingreso de datos médicos</h2>
+  <p class="section-description">
+    Complete el formulario con la información requerida. Al guardar, se generará una plantilla con los datos ingresados y el registro quedará almacenado en la base de datos.
+  </p>
+
+  {% if errores %}
+    <div class="alert alert-error">
+      <h3>Revise los siguientes campos:</h3>
+      <ul>
+        {% for error in errores %}
+          <li>{{ error }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  <form method="post" class="formulario">
+    <section>
+      <h3>Datos personales</h3>
+      <div class="field-grid">
+        <label>
+          <span>Servicio de salud *</span>
+          <input type="text" name="servicio_salud" value="{{ campos.servicio_salud }}" required />
+        </label>
+        <label>
+          <span>Establecimiento</span>
+          <input type="text" name="establecimiento" value="{{ campos.establecimiento }}" />
+        </label>
+        <label>
+          <span>Especialidad</span>
+          <input type="text" name="especialidad" value="{{ campos.especialidad }}" />
+        </label>
+        <label>
+          <span>Unidad</span>
+          <input type="text" name="unidad" value="{{ campos.unidad }}" />
+        </label>
+        <label>
+          <span>Nombre completo *</span>
+          <input type="text" name="nombre" value="{{ campos.nombre }}" required />
+        </label>
+        <label>
+          <span>Historia clínica</span>
+          <input type="text" name="historia_clinica" value="{{ campos.historia_clinica }}" />
+        </label>
+        <label>
+          <span>RUT paciente</span>
+          <input type="text" name="rut" value="{{ campos.rut }}" placeholder="11111111-1" />
+        </label>
+        <label>
+          <span>RUT apoderado</span>
+          <input type="text" name="rut_padre" value="{{ campos.rut_padre }}" placeholder="22222222-2" />
+        </label>
+        <label>
+          <span>Sexo</span>
+          <select name="sexo">
+            <option value="" {% if not campos.sexo %}selected{% endif %}></option>
+            <option value="Femenino" {% if campos.sexo == 'Femenino' %}selected{% endif %}>Femenino</option>
+            <option value="Masculino" {% if campos.sexo == 'Masculino' %}selected{% endif %}>Masculino</option>
+            <option value="Otro" {% if campos.sexo == 'Otro' %}selected{% endif %}>Otro</option>
+          </select>
+        </label>
+        <label>
+          <span>Fecha de nacimiento</span>
+          <input type="date" name="fecha_nacimiento" value="{{ campos.fecha_nacimiento }}" />
+        </label>
+        <label>
+          <span>Edad</span>
+          <input type="number" min="0" name="edad" value="{{ campos.edad }}" />
+        </label>
+        <label>
+          <span>Domicilio</span>
+          <input type="text" name="domicilio" value="{{ campos.domicilio }}" />
+        </label>
+        <label>
+          <span>Comuna</span>
+          <input type="text" name="comuna" value="{{ campos.comuna }}" />
+        </label>
+        <label>
+          <span>Teléfono 1</span>
+          <input type="tel" name="telefono1" value="{{ campos.telefono1 }}" />
+        </label>
+        <label>
+          <span>Teléfono 2</span>
+          <input type="tel" name="telefono2" value="{{ campos.telefono2 }}" />
+        </label>
+        <label>
+          <span>Correo electrónico 1</span>
+          <input type="email" name="correo1" value="{{ campos.correo1 }}" />
+        </label>
+        <label>
+          <span>Correo electrónico 2</span>
+          <input type="email" name="correo2" value="{{ campos.correo2 }}" />
+        </label>
+      </div>
+    </section>
+
+    <section>
+      <h3>Datos médicos</h3>
+      <div class="field-grid">
+        <label>
+          <span>Establecimiento de derivación</span>
+          <input type="text" name="establecimiento_derivacion" value="{{ campos.establecimiento_derivacion }}" />
+        </label>
+        <label>
+          <span>Grupo poblacional específico</span>
+          <select name="grupo_poblacional">
+            <option value="" {% if not campos.grupo_poblacional %}selected{% endif %}></option>
+            <option value="Sí" {% if campos.grupo_poblacional == 'Sí' %}selected{% endif %}>Sí</option>
+            <option value="No" {% if campos.grupo_poblacional == 'No' %}selected{% endif %}>No</option>
+          </select>
+        </label>
+        <label>
+          <span>Tipo de consulta</span>
+          <select name="tipo_consulta">
+            <option value="" {% if not campos.tipo_consulta %}selected{% endif %}></option>
+            <option value="Individual" {% if campos.tipo_consulta == 'Individual' %}selected{% endif %}>Individual</option>
+            <option value="Grupal" {% if campos.tipo_consulta == 'Grupal' %}selected{% endif %}>Grupal</option>
+          </select>
+        </label>
+        <label>
+          <span>¿Requiere terapias específicas?</span>
+          <select name="tiene_terapias">
+            <option value="" {% if not campos.tiene_terapias %}selected{% endif %}></option>
+            <option value="Sí" {% if campos.tiene_terapias == 'Sí' %}selected{% endif %}>Sí</option>
+            <option value="No" {% if campos.tiene_terapias == 'No' %}selected{% endif %}>No</option>
+          </select>
+        </label>
+        <label class="wide">
+          <span>Detalle terapias</span>
+          <textarea name="terapias_otro" rows="3">{{ campos.terapias_otro }}</textarea>
+        </label>
+        <label class="wide">
+          <span>Hipótesis diagnóstica</span>
+          <textarea name="hipotesis_diagnostico" rows="3">{{ campos.hipotesis_diagnostico }}</textarea>
+        </label>
+        <label>
+          <span>¿Caso GES?</span>
+          <select name="es_ges">
+            <option value="" {% if not campos.es_ges %}selected{% endif %}></option>
+            <option value="Sí" {% if campos.es_ges == 'Sí' %}selected{% endif %}>Sí</option>
+            <option value="No" {% if campos.es_ges == 'No' %}selected{% endif %}>No</option>
+          </select>
+        </label>
+        <label class="wide">
+          <span>Fundamento diagnóstico</span>
+          <textarea name="fundamento_diagnostico" rows="3">{{ campos.fundamento_diagnostico }}</textarea>
+        </label>
+        <label class="wide">
+          <span>Exámenes realizados</span>
+          <textarea name="examenes_realizados" rows="3">{{ campos.examenes_realizados }}</textarea>
+        </label>
+      </div>
+    </section>
+
+    <section>
+      <h3>Patologías GES</h3>
+      <p class="section-description">Seleccione todas las patologías que apliquen.</p>
+      <div class="checkbox-grid">
+        {% set seleccionadas = campos.patologias_ges.split(';') if campos.patologias_ges else [] %}
+        {% for patologia in patologias %}
+          <label class="checkbox-item">
+            <input type="checkbox" name="patologias_ges" value="{{ patologia }}" {% if patologia in seleccionadas %}checked{% endif %} />
+            <span>{{ patologia }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section>
+      <h3>Profesional responsable</h3>
+      <div class="field-grid">
+        <label>
+          <span>Nombre médico</span>
+          <input type="text" name="nombre_medico" value="{{ campos.nombre_medico }}" />
+        </label>
+        <label>
+          <span>RUT médico</span>
+          <input type="text" name="rut_medico" value="{{ campos.rut_medico }}" placeholder="33333333-3" />
+        </label>
+      </div>
+    </section>
+
+    <div class="actions">
+      <button type="submit" class="primary">Guardar formulario</button>
+      <a class="secondary" href="{{ url_for('listar_formularios') }}">Ver registros existentes</a>
+    </div>
+  </form>
+{% endblock %}
