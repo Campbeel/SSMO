@@ -50,7 +50,7 @@
         <label>
           <span>RUT paciente</span>
           <input type="text" name="rut" value="{{ campos.rut }}" placeholder="11.111.111-1" data-rut />
-          <small class="field-note">Si el RUT termina en K, ingrese 0. El sistema lo convertirá automáticamente.</small>
+          <small class="field-note">Si el RUT termina en K, ingrese 0.</small>
         </label>
         <label class="checkbox-inline">
           <input type="checkbox" id="menor-edad" {% if campos.rut_padre %}checked{% endif %} />
@@ -59,7 +59,7 @@
         <label data-menor-field {% if not campos.rut_padre %}hidden{% endif %}>
           <span>RUT apoderado/padre</span>
           <input type="text" name="rut_padre" value="{{ campos.rut_padre }}" placeholder="22.222.222-2" data-rut />
-          <small class="field-note">Si el RUT termina en K, ingrese 0. El sistema lo convertirá automáticamente.</small>
+          <small class="field-note">Si el RUT termina en K, ingrese 0.</small>
         </label>
         <label>
           <span>Sexo</span>
@@ -199,7 +199,7 @@
         <label>
           <span>RUT médico</span>
           <input type="text" name="rut_medico" value="{{ campos.rut_medico }}" placeholder="33.333.333-3" data-rut />
-          <small class="field-note">Si el RUT termina en K, ingrese 0. El sistema lo convertirá automáticamente.</small>
+          <small class="field-note">Si el RUT termina en K, ingrese 0.</small>
         </label>
       </div>
     </section>
