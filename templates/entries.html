@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+
+{% block title %}Formularios guardados · SSMO{% endblock %}
+
+{% block content %}
+  <section class="entries">
+    <header class="entries-header">
+      <div>
+        <h2>Formularios guardados</h2>
+        <p>Listado de registros almacenados en la base de datos.</p>
+      </div>
+      <a class="primary" href="{{ url_for('formulario') }}">Nuevo formulario</a>
+    </header>
+
+    {% if registros %}
+      <table class="entries-table">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Paciente</th>
+            <th>RUT</th>
+            <th>Especialidad</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for registro in registros %}
+            <tr>
+              <td>{{ registro.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
+              <td>{{ registro.nombre }}</td>
+              <td>{{ registro.rut or '—' }}</td>
+              <td>{{ registro.especialidad or '—' }}</td>
+              <td>
+                <a class="secondary" href="{{ url_for('ver_formulario', form_id=registro.id) }}">Ver plantilla</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty-state">Todavía no hay registros guardados. Cree uno nuevo para comenzar.</p>
+    {% endif %}
+  </section>
+{% endblock %}
