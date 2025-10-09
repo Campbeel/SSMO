@@ -140,6 +140,16 @@ h2 {
   resize: vertical;
 }
 
+.field-grid label.field-disabled input {
+  background: var(--secondary);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.field-grid label.field-disabled input::placeholder {
+  color: rgba(107, 114, 128, 0.8);
+}
+
 .field-grid label.wide {
   grid-column: 1 / -1;
 }

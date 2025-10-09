@@ -50,16 +50,23 @@
         <label>
           <span>RUT paciente</span>
           <input type="text" name="rut" value="{{ campos.rut }}" placeholder="11.111.111-1" data-rut />
-          <small class="field-note">Si el RUT termina en K, ingrese 0. El sistema lo convertirá automáticamente.</small>
+          <small class="field-note">Si el RUT termina en K, ingrese 0.</small>
         </label>
         <label class="checkbox-inline">
           <input type="checkbox" id="menor-edad" {% if campos.rut_padre %}checked{% endif %} />
           <span>Paciente menor de edad</span>
         </label>
-        <label data-menor-field {% if not campos.rut_padre %}hidden{% endif %}>
+        <label data-menor-field class="{% if not campos.rut_padre %}field-disabled{% endif %}">
           <span>RUT apoderado/padre</span>
-          <input type="text" name="rut_padre" value="{{ campos.rut_padre }}" placeholder="22.222.222-2" data-rut />
-          <small class="field-note">Si el RUT termina en K, ingrese 0. El sistema lo convertirá automáticamente.</small>
+          <input
+            type="text"
+            name="rut_padre"
+            value="{{ campos.rut_padre }}"
+            placeholder="22.222.222-2"
+            data-rut
+            {% if not campos.rut_padre %}disabled{% endif %}
+          />
+          <small class="field-note">Si el RUT termina en K, ingrese 0.</small>
         </label>
         <label>
           <span>Sexo</span>
@@ -136,9 +143,15 @@
             {% endfor %}
           </select>
         </label>
-        <label class="wide" data-consulta-otro {% if consulta_seleccion != 'Otro' %}hidden{% endif %}>
+        <label class="wide {% if consulta_seleccion != 'Otro' %}field-disabled{% endif %}" data-consulta-otro>
           <span>Detalle del tipo de consulta</span>
-          <input type="text" name="tipo_consulta_otro" value="{{ consulta_detalle }}" placeholder="Especifique el motivo" />
+          <input
+            type="text"
+            name="tipo_consulta_otro"
+            value="{{ consulta_detalle }}"
+            placeholder="Especifique el motivo"
+            {% if consulta_seleccion != 'Otro' %}disabled{% endif %}
+          />
         </label>
         <label>
           <span>¿Requiere terapias específicas?</span>
@@ -199,7 +212,7 @@
         <label>
           <span>RUT médico</span>
           <input type="text" name="rut_medico" value="{{ campos.rut_medico }}" placeholder="33.333.333-3" data-rut />
-          <small class="field-note">Si el RUT termina en K, ingrese 0. El sistema lo convertirá automáticamente.</small>
+          <small class="field-note">Si el RUT termina en K, ingrese 0.</small>
         </label>
       </div>
     </section>

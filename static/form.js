@@ -133,15 +133,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (menorToggle && menorField) {
     const toggleMenor = () => {
-      const visible = menorToggle.checked;
-      menorField.hidden = !visible;
-      if (!visible) {
-        const campo = menorField.querySelector('input');
-        if (campo) {
+      const habilitado = menorToggle.checked;
+      const campo = menorField.querySelector('input');
+      if (campo) {
+        campo.disabled = !habilitado;
+        if (!habilitado) {
           campo.value = '';
           campo.setCustomValidity('');
         }
       }
+      menorField.classList.toggle('field-disabled', !habilitado);
     };
     menorToggle.addEventListener('change', toggleMenor);
     toggleMenor();
@@ -150,11 +151,15 @@ document.addEventListener('DOMContentLoaded', () => {
   if (consultaSelector && consultaOtro) {
     const actualizarConsulta = () => {
       const esOtro = consultaSelector.value === 'Otro';
-      consultaOtro.hidden = !esOtro;
       const campo = consultaOtro.querySelector('input');
-      if (!esOtro && campo) {
-        campo.value = '';
+      if (campo) {
+        campo.disabled = !esOtro;
+        if (!esOtro) {
+          campo.value = '';
+          campo.setCustomValidity('');
+        }
       }
+      consultaOtro.classList.toggle('field-disabled', !esOtro);
     };
     consultaSelector.addEventListener('change', actualizarConsulta);
     actualizarConsulta();
