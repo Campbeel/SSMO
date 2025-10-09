@@ -123,6 +123,43 @@ h2 {
   height: 18px;
 }
 
+/* Botones que reemplazan/acompañan las imágenes activadoras (img1/img2) */
+.toggle-img {
+  display: inline-block;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background-color: var(--secondary);
+  margin-right: 0.5rem;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.toggle-img.small {
+  /* imagen 1 más pequeña según solicitud */
+  width: 22px;
+  height: 22px;
+}
+
+.toggle-img[aria-pressed="true"] {
+  background-color: var(--primary);
+  border-color: transparent;
+}
+
+/* Oculta visualmente el checkbox real pero lo deja accesible para lectores de pantalla */
+.visually-hidden-checkbox {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
 .field-grid input,
 .field-grid select,
 .field-grid textarea,
@@ -350,3 +387,29 @@ a.secondary:hover {
     align-items: stretch;
   }
 }
+
+/* User requested overrides */
+/* Ocultar el indicador azul (imagen 2) del tipo de consulta */
+#img-consulta { display: none !important; }
+
+/* También oculto el indicador del menor si quieres liberar espacio de esa fila */
+#img-menor { display: none !important; }
+
+/* Compactar la fila del checkbox "Paciente menor de edad" */
+.checkbox-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;         /* menos espacio entre el check y el texto */
+  margin: 0;           /* elimina márgenes extra en esa línea */
+}
+
+/* Reducir tamaño visual del checkbox nativo */
+.checkbox-inline input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  transform: none;     /* asegura que no haya escalados previos */
+}
+
+/* y con esto disminuye el tamaño de " #img-menor { display:none }" con esto: */
+#img-menor { width:14px; height:14px; margin-right:.25rem; }

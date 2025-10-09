@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List, Optional
+import re
 
 from flask import Flask, flash, redirect, render_template, request, url_for
 from flask_sqlalchemy import SQLAlchemy
@@ -218,6 +219,39 @@ def _validar_datos(datos: Dict[str, str]) -> List[str]:
     if not datos["servicio_salud"].strip():
         errores.append("Debe indicar el servicio de salud.")
 
+    # Reglas adicionales solicitadas
+    if not (datos.get("rut", "").strip()):
+        errores.append("El RUT del paciente es obligatorio.")
+    if not (datos.get("fecha_nacimiento", "").strip()):
+        errores.append("La fecha de nacimiento es obligatoria.")
+    if not (datos.get("telefono1", "").strip()):
+        errores.append("El teléfono 1 es obligatorio.")
+    correo1 = (datos.get("correo1", "").strip())
+    if not correo1:
+        errores.append("El correo 1 es obligatorio.")
+
+    # Email válido (básico)
+    def _email_valido(correo: str) -> bool:
+        return bool(re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$", correo or "", re.IGNORECASE))
+
+    if correo1 and not _email_valido(correo1):
+        errores.append("El correo 1 no es válido.")
+    correo2 = (datos.get("correo2", "").strip())
+    if correo2 and not _email_valido(correo2):
+        errores.append("El correo 2 no es válido.")
+    historia = (datos.get("historia_clinica", "").strip())
+    if historia and not historia.isdigit():
+        errores.append("La historia clínica debe contener solo dígitos.")
+
+    # Teléfonos: solo dígitos y '+' inicial opcional
+    telefono1 = (datos.get("telefono1", "").strip())
+    telefono2 = (datos.get("telefono2", "").strip())
+    telefono_pat = re.compile(r"^\+?\d+$")
+    if telefono1 and not telefono_pat.match(telefono1):
+        errores.append("El teléfono 1 solo puede contener números y un '+' inicial.")
+    if telefono2 and not telefono_pat.match(telefono2):
+        errores.append("El teléfono 2 solo puede contener números y un '+' inicial.")
+
     for rut_field in ("rut", "rut_padre", "rut_medico"):
         rut = datos.get(rut_field, "").strip()
         if rut and not _rut_valido(rut):
@@ -251,17 +285,12 @@ def formulario():
             return render_template(
                 "form.html",
                 campos=datos,
-                patologias=PATOLOGIAS_GES,
-                comunas=COMUNAS,
-                tipos_consulta=TIPOS_CONSULTA,
                 errores=errores,
             )
 
         detalle_otro = datos.pop("tipo_consulta_detalle", "")
         if datos.get("tipo_consulta") == "Otro" and detalle_otro:
             datos["tipo_consulta"] = f"Otro - {detalle_otro}"
-        for rut_field in ("rut", "rut_padre", "rut_medico"):
-            datos[rut_field] = _normalizar_rut(datos.get(rut_field, ""))
         registro = MedicalForm(**datos)
         db.session.add(registro)
         db.session.commit()
@@ -274,9 +303,6 @@ def formulario():
     return render_template(
         "form.html",
         campos=valores_iniciales,
-        patologias=PATOLOGIAS_GES,
-        comunas=COMUNAS,
-        tipos_consulta=TIPOS_CONSULTA,
         errores=[],
     )
 

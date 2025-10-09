@@ -45,63 +45,59 @@
         </label>
         <label>
           <span>Historia clínica</span>
-          <input type="text" name="historia_clinica" value="{{ campos.historia_clinica }}" />
+          <input type="text" name="historia_clinica" value="{{ campos.historia_clinica }}" inputmode="numeric" pattern="[0-9]*" data-only-digits />
         </label>
         <label>
-          <span>RUT paciente</span>
-          <input type="text" name="rut" value="{{ campos.rut }}" placeholder="11.111.111-1" data-rut />
+          <span>RUT paciente *</span>
+          <input type="text" name="rut" value="{{ campos.rut }}" placeholder="11.111.111-1" data-rut required />
           <small class="field-note">Si el RUT termina en K, ingrese 0.</small>
         </label>
-        <label class="checkbox-inline">
-          <input type="checkbox" id="menor-edad" {% if campos.rut_padre %}checked{% endif %} />
-          <span>Paciente menor de edad</span>
-        </label>
-        <label data-menor-field {% if not campos.rut_padre %}hidden{% endif %}>
-          <span>RUT apoderado/padre</span>
+        <label>
+          <span>RUT apoderado/padre (opcional)</span>
           <input type="text" name="rut_padre" value="{{ campos.rut_padre }}" placeholder="22.222.222-2" data-rut />
           <small class="field-note">Si el RUT termina en K, ingrese 0.</small>
         </label>
         <label>
           <span>Sexo</span>
           <select name="sexo">
-            <option value="" {% if not campos.sexo %}selected{% endif %}></option>
+            <option value="" disabled {% if not campos.sexo %}selected{% endif %}>Seleccione sexo</option>
             <option value="Femenino" {% if campos.sexo == 'Femenino' %}selected{% endif %}>Femenino</option>
             <option value="Masculino" {% if campos.sexo == 'Masculino' %}selected{% endif %}>Masculino</option>
             <option value="Otro" {% if campos.sexo == 'Otro' %}selected{% endif %}>Otro</option>
           </select>
         </label>
         <label>
-          <span>Fecha de nacimiento</span>
-          <input type="date" name="fecha_nacimiento" value="{{ campos.fecha_nacimiento }}" />
+          <span>Fecha de nacimiento *</span>
+          <input type="date" name="fecha_nacimiento" value="{{ campos.fecha_nacimiento }}" required />
         </label>
         <label>
           <span>Edad</span>
           <input type="number" min="0" name="edad" value="{{ campos.edad }}" readonly />
         </label>
-        <label>
+        <label class="wide">
           <span>Domicilio</span>
           <input type="text" name="domicilio" value="{{ campos.domicilio }}" />
         </label>
         <label>
           <span>Comuna</span>
           <select name="comuna">
-            <option value="" {% if not campos.comuna %}selected{% endif %}>Seleccione una comuna</option>
-            {% for comuna in comunas %}
+            <option value="" disabled {% if not campos.comuna %}selected{% endif %}>Seleccione una comuna</option>
+            {% for comuna in comunas_catalogo %}
               <option value="{{ comuna }}" {% if campos.comuna == comuna %}selected{% endif %}>{{ comuna }}</option>
             {% endfor %}
           </select>
         </label>
         <label>
-          <span>Teléfono 1</span>
-          <input type="tel" name="telefono1" value="{{ campos.telefono1 }}" />
+          <span>Teléfono 1 *</span>
+          <input type="tel" name="telefono1" value="{{ campos.telefono1 }}" required inputmode="tel" pattern="^\+?\d+$" data-phone placeholder="+56912345678" />
         </label>
         <label>
           <span>Teléfono 2</span>
-          <input type="tel" name="telefono2" value="{{ campos.telefono2 }}" />
+          <input type="tel" name="telefono2" value="{{ campos.telefono2 }}" inputmode="tel" pattern="^\+?\d+$" data-phone placeholder="+56912345678" />
         </label>
         <label>
-          <span>Correo electrónico 1</span>
-          <input type="email" name="correo1" value="{{ campos.correo1 }}" />
+          <span>Correo electrónico 1 *</span>
+          <input type="email" name="correo1" value="{{ campos.correo1 }}" required />
         </label>
         <label>
           <span>Correo electrónico 2</span>
@@ -120,46 +116,40 @@
         <label>
           <span>Grupo poblacional específico</span>
           <select name="grupo_poblacional">
-            <option value="" {% if not campos.grupo_poblacional %}selected{% endif %}></option>
+            <option value="" disabled {% if not campos.grupo_poblacional %}selected{% endif %}>Seleccione</option>
             <option value="Sí" {% if campos.grupo_poblacional == 'Sí' %}selected{% endif %}>Sí</option>
             <option value="No" {% if campos.grupo_poblacional == 'No' %}selected{% endif %}>No</option>
           </select>
         </label>
-        {% set consulta_seleccion = campos.tipo_consulta if campos.tipo_consulta in tipos_consulta else ('Otro' if campos.tipo_consulta and campos.tipo_consulta.startswith('Otro') else '') %}
-        {% set consulta_detalle = campos.tipo_consulta_detalle if campos.tipo_consulta_detalle is defined and campos.tipo_consulta_detalle else (campos.tipo_consulta.split('Otro - ', 1)[1] if consulta_seleccion == 'Otro' and ' - ' in campos.tipo_consulta else '') %}
         <label>
           <span>Tipo de consulta</span>
           <select name="tipo_consulta" data-consulta-selector>
-            <option value="" {% if not consulta_seleccion %}selected{% endif %}></option>
-            {% for opcion in tipos_consulta %}
-              <option value="{{ opcion }}" {% if consulta_seleccion == opcion %}selected{% endif %}>{{ opcion }}</option>
+            <option value="" disabled {% if not campos.tipo_consulta %}selected{% endif %}>Seleccione tipo de consulta</option>
+            {% for opcion in tipos_consulta_catalogo %}
+              <option value="{{ opcion }}" {% if campos.tipo_consulta == opcion %}selected{% endif %}>{{ opcion }}</option>
             {% endfor %}
           </select>
         </label>
-        <label class="wide" data-consulta-otro {% if consulta_seleccion != 'Otro' %}hidden{% endif %}>
+        <label class="wide" data-consulta-otro {% if campos.tipo_consulta != 'Otro' %}hidden{% endif %}>
           <span>Detalle del tipo de consulta</span>
-          <input type="text" name="tipo_consulta_otro" value="{{ consulta_detalle }}" placeholder="Especifique el motivo" />
+          <input type="text" name="tipo_consulta_otro" value="{{ campos.tipo_consulta_detalle or '' }}" placeholder="Especifique el motivo" />
         </label>
         <label>
           <span>¿Requiere terapias específicas?</span>
           <select name="tiene_terapias">
-            <option value="" {% if not campos.tiene_terapias %}selected{% endif %}></option>
+            <option value="" disabled {% if not campos.tiene_terapias %}selected{% endif %}>Seleccione</option>
             <option value="Sí" {% if campos.tiene_terapias == 'Sí' %}selected{% endif %}>Sí</option>
             <option value="No" {% if campos.tiene_terapias == 'No' %}selected{% endif %}>No</option>
           </select>
         </label>
         <label class="wide">
-          <span>Detalle terapias</span>
-          <textarea name="terapias_otro" rows="3">{{ campos.terapias_otro }}</textarea>
-        </label>
-        <label class="wide">
           <span>Hipótesis diagnóstica</span>
           <textarea name="hipotesis_diagnostico" rows="3">{{ campos.hipotesis_diagnostico }}</textarea>
         </label>
-        <label>
+        <label class="wide">
           <span>¿Caso GES?</span>
           <select name="es_ges">
-            <option value="" {% if not campos.es_ges %}selected{% endif %}></option>
+            <option value="" disabled {% if not campos.es_ges %}selected{% endif %}>Seleccione</option>
             <option value="Sí" {% if campos.es_ges == 'Sí' %}selected{% endif %}>Sí</option>
             <option value="No" {% if campos.es_ges == 'No' %}selected{% endif %}>No</option>
           </select>
@@ -180,7 +170,7 @@
       <p class="section-description">Seleccione todas las patologías que apliquen.</p>
       <div class="checkbox-grid">
         {% set seleccionadas = campos.patologias_ges.split(';') if campos.patologias_ges else [] %}
-        {% for patologia in patologias %}
+        {% for patologia in patologias_catalogo %}
           <label class="checkbox-item">
             <input type="checkbox" name="patologias_ges" value="{{ patologia }}" {% if patologia in seleccionadas %}checked{% endif %} />
             <span>{{ patologia }}</span>

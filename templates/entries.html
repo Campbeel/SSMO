@@ -28,8 +28,8 @@
             <tr>
               <td>{{ registro.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
               <td>{{ registro.nombre }}</td>
-              <td>{{ registro.rut or '—' }}</td>
-              <td>{{ registro.especialidad or '—' }}</td>
+              <td>{{ registro.rut or '-' }}</td>
+              <td>{{ registro.especialidad or '-' }}</td>
               <td>
                 <a class="secondary" href="{{ url_for('ver_formulario', form_id=registro.id) }}">Ver plantilla</a>
               </td>
@@ -42,3 +42,4 @@
     {% endif %}
   </section>
 {% endblock %}
+
