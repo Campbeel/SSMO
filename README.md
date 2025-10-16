@@ -30,24 +30,13 @@ Aplicación web para gestionar formularios médicos del Servicio de Salud Metrop
    pip install -r requirements.txt
    ```
 
-3. Inicializar la Base de Datos
-
-Antes de ejecutar la aplicación por primera vez, necesitas crear las tablas en la base de datos. Utiliza el comando CLI personalizado que se incluye en el proyecto:
-Bash
-
-	```bash
-	flask create-db
-	```
-
-Este comando eliminará la base de datos existente (si la hay) y creará una nueva con la estructura correcta y datos de prueba. Solo necesitas ejecutarlo una vez o cuando quieras restaurar la base de datos a su estado inicial.
-
-4. Ejecutar la aplicación:
+3. Ejecutar la aplicación:
 
    ```bash
    flask --app app run --debug
    ```
 
-5. Abrir el navegador en `http://127.0.0.1:5000/` para acceder al formulario.
+4. Abrir el navegador en `http://127.0.0.1:5000/` para acceder al formulario.
 
 La base de datos `ssmo.db` se crea automáticamente la primera vez que se ejecuta la aplicación.
 

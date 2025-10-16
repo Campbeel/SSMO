@@ -16,27 +16,23 @@
       <table class="entries-table">
         <thead>
           <tr>
-            <th>ID SIC</th>
+            <th>Fecha</th>
             <th>Paciente</th>
             <th>RUT</th>
-            <th>Fecha de Creación</th>
+            <th>Especialidad</th>
             <th>Acciones</th>
           </tr>
         </thead>
         <tbody>
           {% for registro in registros %}
             <tr>
-              <td>{{ registro.id_sic }}</td>
-              <td>{{ registro.paciente.nombre }}</td>
-              <td>{{ registro.paciente.rut_pac }}</td>
-              <td>{{ registro.fecha_creacion.strftime('%d/%m/%Y %H:%M') }}</td>
+              <td>{{ registro.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
+              <td>{{ registro.nombre }}</td>
+              <td>{{ registro.rut or '-' }}</td>
+              <td>{{ registro.especialidad or '-' }}</td>
               <td>
-                <a href="{{ url_for('ver_formulario', form_id=registro.id_sic) }}">Ver detalle</a>
+                <a class="secondary" href="{{ url_for('ver_formulario', form_id=registro.id) }}">Ver plantilla</a>
               </td>
-            </tr>
-          {% else %}
-            <tr>
-              <td colspan="5" class="empty-state">Todavía no hay registros guardados. Cree uno nuevo para comenzar.</td>
             </tr>
           {% endfor %}
         </tbody>
