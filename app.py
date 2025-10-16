@@ -8,9 +8,10 @@ import re
 
 from flask import Flask, flash, redirect, render_template, request, url_for
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.orm import joinedload
 
 BASE_DIR = Path(__file__).resolve().parent
-DATABASE_PATH = BASE_DIR / "ssmo.db"
+DATABASE_PATH = BASE_DIR / "ssmo_sic.db"
 
 app = Flask(__name__)
 app.config.update(
@@ -23,73 +24,107 @@ db = SQLAlchemy(app)
 
 
 @dataclass
-class MedicalForm(db.Model):
-    """Modelo que representa un formulario médico almacenado."""
+class Establecimiento(db.Model):
+    __tablename__ = 'establecimiento'
+    id_est = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String, nullable=False, unique=True)
+    servicio_salud = db.Column(db.String)
 
-    __tablename__ = "medical_forms"
+    # Relaciones inversas para las SICs, diferenciando origen y destino.
+    sics_origen = db.relationship('Sic', foreign_keys='Sic.id_est_orig', back_populates='establecimiento_origen')
+    sics_destino = db.relationship('Sic', foreign_keys='Sic.id_est_dest', back_populates='establecimiento_destino')
 
-    id: int = db.Column(db.Integer, primary_key=True)
-    created_at: datetime = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+class Paciente(db.Model):
+    __tablename__ = 'paciente'
+    rut_pac = db.Column(db.String, primary_key=True)
+    id_est = db.Column(db.Integer, db.ForeignKey('establecimiento.id_est'), nullable=False)
+    nombre = db.Column(db.String, nullable=False)
+    historia_clinica = db.Column(db.String)
+    sexo = db.Column(db.String)
+    fecha_nacimiento = db.Column(db.Date)
+    edad = db.Column(db.Integer)
+    domicilio = db.Column(db.String)
+    comuna = db.Column(db.String)
+    telefono1 = db.Column(db.String)
+    telefono2 = db.Column(db.String)
+    correo1 = db.Column(db.String)
+    correo2 = db.Column(db.String)
 
-    servicio_salud: str = db.Column(db.String(120), nullable=False, default="Metropolitano Oriente")
-    establecimiento: str = db.Column(db.String(120))
-    especialidad: str = db.Column(db.String(120))
-    unidad: str = db.Column(db.String(120))
-    nombre: str = db.Column(db.String(160), nullable=False)
-    historia_clinica: str = db.Column(db.String(120))
-    rut: str = db.Column(db.String(20))
-    rut_padre: str = db.Column(db.String(20))
-    sexo: str = db.Column(db.String(20))
-    fecha_nacimiento: str = db.Column(db.String(20))
-    edad: str = db.Column(db.String(20))
-    domicilio: str = db.Column(db.String(160))
-    comuna: str = db.Column(db.String(80))
-    telefono1: str = db.Column(db.String(40))
-    telefono2: str = db.Column(db.String(40))
-    correo1: str = db.Column(db.String(120))
-    correo2: str = db.Column(db.String(120))
-    establecimiento_derivacion: str = db.Column(db.String(160))
-    grupo_poblacional: str = db.Column(db.String(40))
-    tipo_consulta: str = db.Column(db.String(40))
-    tiene_terapias: str = db.Column(db.String(10))
-    terapias_otro: str = db.Column(db.Text)
-    hipotesis_diagnostico: str = db.Column(db.Text)
-    es_ges: str = db.Column(db.String(10))
-    fundamento_diagnostico: str = db.Column(db.Text)
-    examenes_realizados: str = db.Column(db.Text)
-    nombre_medico: str = db.Column(db.String(160))
-    rut_medico: str = db.Column(db.String(20))
-    patologias_ges: str = db.Column(db.Text)
+    # Relación inversa a Sic
+    sics = db.relationship('Sic', back_populates='paciente')
 
-    def patologias_ges_lista(self) -> List[str]:
-        if not self.patologias_ges:
-            return []
-        return [item.strip() for item in self.patologias_ges.split(";") if item.strip()]
+class Profesional(db.Model):
+    __tablename__ = 'profesional'
+    rut_pro = db.Column(db.String, primary_key=True)
+    nombre = db.Column(db.String, nullable=False)
+    especialidad = db.Column(db.String)
 
-    def resumen_texto(self) -> str:
-        """Genera un texto de resumen con los datos del formulario."""
+    # Relación inversa a Sic
+    sics = db.relationship('Sic', back_populates='profesional')
 
-        patologias = ", ".join(self.patologias_ges_lista()) or "Sin patologías GES registradas"
-        return (
-            "FORMULARIO GUARDADO\n"
-            "===================\n\n"
-            f"Fecha de registro: {self.created_at.strftime('%d/%m/%Y %H:%M')}\n\n"
-            "DATOS PERSONALES\n"
-            f"• Nombre: {self.nombre or 'No especificado'}\n"
-            f"• RUT: {self.rut or 'No especificado'}\n"
-            f"• Fecha de nacimiento: {self.fecha_nacimiento or 'No especificada'}\n"
-            f"• Edad: {self.edad or 'No especificada'}\n"
-            f"• Comuna: {self.comuna or 'No especificada'}\n\n"
-            "DATOS MÉDICOS\n"
-            f"• Especialidad: {self.especialidad or 'No especificada'}\n"
-            f"• Tipo de consulta: {self.tipo_consulta or 'No especificado'}\n"
-            f"• Hipótesis diagnóstica: {self.hipotesis_diagnostico or 'No especificada'}\n"
-            f"• Exámenes realizados: {self.examenes_realizados or 'No especificados'}\n"
-            f"• Médico responsable: {self.nombre_medico or 'No especificado'}\n\n"
-            "GES\n"
-            f"• Caso GES: {self.es_ges or 'No especificado'}\n"
-            f"• Patologías declaradas: {patologias}\n"
-        )
+pro_est_association = db.Table('pro_est',
+    db.Column('rut_pro', db.String, db.ForeignKey('profesional.rut_pro'), primary_key=True),
+    db.Column('id_est', db.Integer, db.ForeignKey('establecimiento.id_est'), primary_key=True),
+    db.Column('estado', db.String)
+)
+
+class Sic(db.Model):
+    __tablename__ = 'sic'
+    id_sic = db.Column(db.Integer, primary_key=True)
+    rut_pro = db.Column(db.String, db.ForeignKey('profesional.rut_pro'), nullable=False)
+    rut_pac = db.Column(db.String, db.ForeignKey('paciente.rut_pac'), nullable=False)
+    id_est_orig = db.Column(db.Integer, db.ForeignKey('establecimiento.id_est'), nullable=False)
+    id_est_dest = db.Column(db.Integer, db.ForeignKey('establecimiento.id_est'), nullable=False)
+    tipo_consulta = db.Column(db.String)
+    especialidad_orig = db.Column(db.String)
+    especialidad_dest = db.Column(db.String)
+    diagnostico = db.Column(db.Text)
+    examenes = db.Column(db.Text)
+    ges = db.Column(db.String)
+    ges_des = db.Column(db.Text)
+    prioridad = db.Column(db.String)
+    fecha_creacion = db.Column(db.TIMESTAMP, default=datetime.utcnow, nullable=False)
+
+    # Relaciones
+    paciente = db.relationship('Paciente', back_populates='sics')
+    profesional = db.relationship('Profesional', back_populates='sics')
+    establecimiento_origen = db.relationship('Establecimiento', foreign_keys=[id_est_orig], back_populates='sics_origen')
+    establecimiento_destino = db.relationship('Establecimiento', foreign_keys=[id_est_dest], back_populates='sics_destino')
+
+    def resumen_texto(self):
+        """Genera un resumen en texto plano de la SIC para copiar."""
+        
+        paciente = self.paciente
+        profesional = self.profesional
+        origen = self.establecimiento_origen
+        destino = self.establecimiento_destino
+
+        fecha_nac_str = paciente.fecha_nacimiento.strftime('%d/%m/%Y') if paciente.fecha_nacimiento else 'No especificada'
+        patologias_str = self.ges_des.replace(';', ', ') if self.ges_des else 'Ninguna'
+
+        return f"""
+DATOS DEL PACIENTE
+------------------
+Nombre: {paciente.nombre}
+RUT: {paciente.rut_pac}
+Fecha de Nacimiento: {fecha_nac_str}
+Domicilio: {paciente.domicilio or 'No especificado'}
+
+DATOS DE LA INTERCONSULTA (SIC)
+-------------------------------
+Origen: {origen.nombre}
+Destino: {destino.nombre}
+Especialidad Origen: {self.especialidad_orig or 'No especificada'}
+Especialidad Destino: {self.especialidad_dest or 'No especificada'}
+Hipótesis Diagnóstica: {self.diagnostico}
+Caso GES: {self.ges or 'No'}
+Patologías GES: {patologias_str}
+
+PROFESIONAL RESPONSABLE
+-----------------------
+Nombre: {profesional.nombre}
+RUT: {profesional.rut_pro}
+        """.strip()
 
 
 FORM_FIELDS: List[str] = [
@@ -118,6 +153,7 @@ FORM_FIELDS: List[str] = [
     "hipotesis_diagnostico",
     "es_ges",
     "fundamento_diagnostico",
+    "prioridad",
     "examenes_realizados",
     "nombre_medico",
     "rut_medico",
@@ -152,6 +188,7 @@ TIPOS_CONSULTA: List[str] = [
 
 
 def _limpiar_rut(rut: str) -> str:
+    """Elimina puntos y guiones del RUT."""
     return "".join(ch for ch in rut if ch.isdigit() or ch in {"K", "k"})
 
 
@@ -197,68 +234,6 @@ def _calcular_edad(fecha_nacimiento: str) -> str:
     )
     return str(max(0, edad))
 
-
-def _extraer_datos_formulario(form_data) -> Dict[str, Optional[str]]:
-    datos = {campo: form_data.get(campo) or "" for campo in FORM_FIELDS}
-    patologias = form_data.getlist("patologias_ges")
-    datos["patologias_ges"] = ";".join(patologias)
-    datos["edad"] = _calcular_edad(datos.get("fecha_nacimiento", ""))
-    tipo_consulta = form_data.get("tipo_consulta") or ""
-    detalle_otro = form_data.get("tipo_consulta_otro", "").strip()
-    datos["tipo_consulta_detalle"] = detalle_otro if tipo_consulta == "Otro" else ""
-    datos["tipo_consulta"] = tipo_consulta
-    for rut_field in ("rut", "rut_padre", "rut_medico"):
-        datos[rut_field] = _normalizar_rut(datos.get(rut_field, ""))
-    return datos
-
-
-def _validar_datos(datos: Dict[str, str]) -> List[str]:
-    errores: List[str] = []
-    if not datos["nombre"].strip():
-        errores.append("El nombre del paciente es obligatorio.")
-    if not datos["servicio_salud"].strip():
-        errores.append("Debe indicar el servicio de salud.")
-
-    # Reglas adicionales solicitadas
-    if not (datos.get("rut", "").strip()):
-        errores.append("El RUT del paciente es obligatorio.")
-    if not (datos.get("fecha_nacimiento", "").strip()):
-        errores.append("La fecha de nacimiento es obligatoria.")
-    if not (datos.get("telefono1", "").strip()):
-        errores.append("El teléfono 1 es obligatorio.")
-    correo1 = (datos.get("correo1", "").strip())
-    if not correo1:
-        errores.append("El correo 1 es obligatorio.")
-
-    # Email válido (básico)
-    def _email_valido(correo: str) -> bool:
-        return bool(re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$", correo or "", re.IGNORECASE))
-
-    if correo1 and not _email_valido(correo1):
-        errores.append("El correo 1 no es válido.")
-    correo2 = (datos.get("correo2", "").strip())
-    if correo2 and not _email_valido(correo2):
-        errores.append("El correo 2 no es válido.")
-    historia = (datos.get("historia_clinica", "").strip())
-    if historia and not historia.isdigit():
-        errores.append("La historia clínica debe contener solo dígitos.")
-
-    # Teléfonos: solo dígitos y '+' inicial opcional
-    telefono1 = (datos.get("telefono1", "").strip())
-    telefono2 = (datos.get("telefono2", "").strip())
-    telefono_pat = re.compile(r"^\+?\d+$")
-    if telefono1 and not telefono_pat.match(telefono1):
-        errores.append("El teléfono 1 solo puede contener números y un '+' inicial.")
-    if telefono2 and not telefono_pat.match(telefono2):
-        errores.append("El teléfono 2 solo puede contener números y un '+' inicial.")
-
-    for rut_field in ("rut", "rut_padre", "rut_medico"):
-        rut = datos.get(rut_field, "").strip()
-        if rut and not _rut_valido(rut):
-            errores.append(f"El RUT ingresado en '{rut_field}' no es válido.")
-    return errores
-
-
 def _rut_valido(rut: str) -> bool:
     """Valida RUT chileno considerando dígito verificador."""
 
@@ -272,50 +247,185 @@ def _rut_valido(rut: str) -> bool:
         dv = "K"
     return esperado == dv
 
+def _extraer_datos_formulario(form_data) -> Dict[str, Optional[str]]:
+    """Extrae y normaliza los datos directamente del formulario de request."""
+    datos = {}
+    
+    # Campos del Paciente
+    datos['rut_pac'] = _normalizar_rut(form_data.get('rut_pac', ''))
+    datos['nombre_paciente'] = form_data.get('nombre_paciente', '').strip()
+    datos['historia_clinica'] = form_data.get('historia_clinica', '')
+    datos['sexo'] = form_data.get('sexo', '')
+    datos['fecha_nacimiento'] = form_data.get('fecha_nacimiento', '')
+    datos['domicilio'] = form_data.get('domicilio', '')
+    datos['comuna'] = form_data.get('comuna', '')
+    datos['telefono1'] = form_data.get('telefono1', '')
+    datos['telefono2'] = form_data.get('telefono2', '')
+    datos['correo1'] = form_data.get('correo1', '')
+    datos['correo2'] = form_data.get('correo2', '')
+
+    # Campos del Profesional
+    datos['rut_pro'] = _normalizar_rut(form_data.get('rut_pro', ''))
+    datos['nombre_medico'] = form_data.get('nombre_medico', '').strip()
+    datos['especialidad_orig'] = form_data.get('especialidad_orig', '')
+
+    # Campos de la Interconsulta (SIC)
+    datos['id_est_orig'] = form_data.get('id_est_orig', '')
+    datos['id_est_dest'] = form_data.get('id_est_dest', '')
+    datos['tipo_consulta'] = form_data.get('tipo_consulta', '')
+    datos['especialidad_dest'] = form_data.get('especialidad_dest', '')
+    datos['diagnostico'] = form_data.get('diagnostico', '')
+    datos['examenes'] = form_data.get('examenes', '')
+    datos['ges'] = form_data.get('ges', '')
+    datos['prioridad'] = form_data.get('prioridad', '')
+
+    # Calcula la edad
+    datos['edad'] = _calcular_edad(datos.get('fecha_nacimiento', ''))
+
+    return datos
+
+
+def _validar_datos(datos: Dict[str, str]) -> List[str]:
+    """Valida los datos extraídos del formulario basado en la lógica relacional."""
+    errores: List[str] = []
+
+    # Validaciones del Paciente
+    if not datos["nombre_paciente"]:
+        errores.append("El nombre del paciente es obligatorio.")
+    if not datos["rut_pac"]:
+        errores.append("El RUT del paciente es obligatorio.")
+    if not _rut_valido(datos["rut_pac"]):
+        errores.append("El RUT del paciente no es válido.")
+    if not datos["fecha_nacimiento"]:
+        errores.append("La fecha de nacimiento es obligatoria.")
+    if not datos["telefono1"]:
+        errores.append("El teléfono 1 del paciente es obligatorio.")
+    if not datos["correo1"]:
+        errores.append("El correo 1 del paciente es obligatorio.")
+    if datos["correo1"] and not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$", datos["correo1"]):
+        errores.append("El correo 1 del paciente no es válido.")
+
+    # Validaciones del Profesional
+    if not datos["nombre_medico"]:
+        errores.append("El nombre del médico es obligatorio.")
+    if not datos["rut_pro"]:
+        errores.append("El RUT del médico es obligatorio.")
+    if not _rut_valido(datos["rut_pro"]):
+        errores.append("El RUT del médico no es válido.")
+
+    # Validaciones de la SIC
+    if not datos["id_est_orig"]:
+        errores.append("Debe seleccionar el establecimiento de origen.")
+    if not datos["id_est_dest"]:
+        errores.append("Debe seleccionar el establecimiento de destino.")
+    if not datos["diagnostico"]:
+        errores.append("La hipótesis diagnóstica es obligatoria.")
+
+    return errores
 
 @app.route("/", methods=["GET", "POST"])
 def formulario():
     if request.method == "POST":
         datos = _extraer_datos_formulario(request.form)
+        
+        if not datos.get('id_est_dest') and datos.get('id_est_orig') != '22':
+            datos['id_est_dest'] = '22'
+
         errores = _validar_datos(datos)
 
         if errores:
             for error in errores:
                 flash(error, "error")
+            establecimientos = Establecimiento.query.order_by(Establecimiento.nombre).all()
             return render_template(
-                "form.html",
-                campos=datos,
-                errores=errores,
+                "form.html", 
+                campos=datos, 
+                errores=errores, 
+                establecimientos=establecimientos
             )
 
-        detalle_otro = datos.pop("tipo_consulta_detalle", "")
-        if datos.get("tipo_consulta") == "Otro" and detalle_otro:
-            datos["tipo_consulta"] = f"Otro - {detalle_otro}"
-        registro = MedicalForm(**datos)
-        db.session.add(registro)
-        db.session.commit()
-        flash("Formulario guardado correctamente.", "success")
-        return redirect(url_for("ver_formulario", form_id=registro.id))
+        # 1. Buscar o crear Paciente
+        paciente = Paciente.query.filter_by(rut_pac=datos['rut_pac']).first()
+        if not paciente:
+            paciente = Paciente(
+                rut_pac=datos['rut_pac'],
+                nombre=datos['nombre_paciente'],
+                historia_clinica=datos['historia_clinica'],
+                sexo=datos.get('sexo'),
+                fecha_nacimiento=datetime.strptime(datos['fecha_nacimiento'], '%Y-%m-%d').date() if datos.get('fecha_nacimiento') else None,
+                edad=datos.get('edad'),
+                domicilio=datos.get('domicilio'),
+                comuna=datos.get('comuna'),
+                telefono1=datos.get('telefono1'),
+                telefono2=datos.get('telefono2'),
+                correo1=datos.get('correo1'),
+                correo2=datos.get('correo2'),
+                # El establecimiento del paciente se asocia al de origen de la SIC
+                id_est=datos.get('id_est_orig') 
+            )
+            db.session.add(paciente)
 
-    valores_iniciales = {campo: "" for campo in FORM_FIELDS}
-    valores_iniciales["servicio_salud"] = "Metropolitano Oriente"
-    valores_iniciales["tipo_consulta_detalle"] = ""
+        # 2. Buscar o crear Profesional
+        profesional = Profesional.query.filter_by(rut_pro=datos['rut_pro']).first()
+        if not profesional:
+            profesional = Profesional(
+                rut_pro=datos['rut_pro'],
+                nombre=datos['nombre_medico'],
+                especialidad=datos['especialidad_orig']
+            )
+            db.session.add(profesional)
+
+        # 3. Crear el registro SIC asignando los objetos de relación
+        nueva_sic = Sic(
+            profesional=profesional,
+            paciente=paciente,
+            id_est_orig=datos.get('id_est_orig'),
+            id_est_dest=datos.get('id_est_dest'),
+            tipo_consulta=datos.get('tipo_consulta'),
+            especialidad_orig=datos.get('especialidad_orig'),
+            especialidad_dest=datos.get('especialidad_dest'),
+            diagnostico=datos.get('diagnostico'),
+            examenes=datos.get('examenes'),
+            ges=datos.get('ges'),
+            prioridad=datos.get('prioridad')
+        )
+        db.session.add(nueva_sic)
+        db.session.commit()
+        db.session.refresh(nueva_sic)
+
+        flash("Formulario SIC guardado correctamente.", "success")
+        return redirect(url_for("ver_formulario", form_id=nueva_sic.id_sic))
+
+    campos_vacios = _extraer_datos_formulario({})
+    campos_vacios["servicio_salud"] = "Metropolitano Oriente"
+    
+    establecimientos = Establecimiento.query.order_by(Establecimiento.nombre).all()
+    
     return render_template(
         "form.html",
-        campos=valores_iniciales,
+        campos=campos_vacios,
         errores=[],
+        establecimientos=establecimientos,
     )
 
 
 @app.route("/formularios")
 def listar_formularios():
-    registros = MedicalForm.query.order_by(MedicalForm.created_at.desc()).all()
+    registros = Sic.query.options(
+        joinedload(Sic.paciente)
+    ).order_by(Sic.fecha_creacion.desc()).all()
     return render_template("entries.html", registros=registros)
 
 
 @app.route("/formularios/<int:form_id>")
 def ver_formulario(form_id: int):
-    registro: Optional[MedicalForm] = MedicalForm.query.get_or_404(form_id)
+    # Cargar el registro SIC y forzar la carga de las relaciones para evitar errores.
+    registro: Optional[Sic] = Sic.query.options(
+        joinedload(Sic.paciente),
+        joinedload(Sic.profesional),
+        joinedload(Sic.establecimiento_origen),
+        joinedload(Sic.establecimiento_destino)
+    ).get_or_404(form_id)
     return render_template("summary.html", registro=registro)
 
 
@@ -328,15 +438,66 @@ def inject_globals():
     }
 
 
-_db_initialized = False
+@app.cli.command("seed-db")
+def seed_db():
+    """Borra y repuebla la base de datos con datos de prueba."""
+    db.drop_all()
+    db.create_all()
 
+    # 1. Poblar establecimientos para que los IDs coincidan con el formulario (tira errors si no existen)
+    # Crear lista unificada? me ha dado paja
+    establecimientos_data = [
+        (1, "Cesfam Carol Urzúa"), (2, "Cesfam La Faena"), (3, "Cesfam Lo Hermida"),
+        (4, "Cesfam San Luis"), (5, "Cesfam Cardenal Silva Henríquez"), (6, "Cesfam Padre Whelan"),
+        (7, "Cesfam Las Torres"), (8, "Cesfam Félix de Amesti"), (9, "Cesfam Santa Julia"),
+        (10, "Cesfam Alberto Hurtado"), (11, "Cesfam Rosita Renard"), (12, "Cesfam Salvador Bustos"),
+        (13, "Cesfam Ossandón"), (14, "Cesfam Juan Pablo II"), (15, "Cesfam Hernán Alessandri"),
+        (16, "Cesfam El Aguilucho"), (17, "Cesfam Dr. Alfonso Leng"), (18, "Cesfam Apoquindo"),
+        (19, "Cesfam Aníbal Ariztía"), (20, "Cesfam Vitacura"), (21, "Cesfam Lo Barnechea"),
+        (22, "COSAM SSMO")
+    ]
+    for id_est, nombre in establecimientos_data:
+        est = Establecimiento(id_est=id_est, nombre=nombre, servicio_salud="Metropolitano Oriente")
+        db.session.add(est)
+    
+    db.session.commit()
 
-@app.before_request
-def inicializar_db():
-    global _db_initialized
-    if not _db_initialized:
-        db.create_all()
-        _db_initialized = True
+    # 2. Crear datos de prueba válidos (poblar db)
+    # Caso 1: Derivación desde un CESFAM a COSAM
+    paciente1 = Paciente(
+        rut_pac="10.171.923-5",
+        nombre="Juan Pérez González",
+        historia_clinica="123456",
+        sexo="Masculino",
+        fecha_nacimiento=date(1990, 5, 15),
+        domicilio="Av. Siempre Viva 742",
+        comuna="Peñalolén",
+        telefono1="987654321",
+        correo1="juan.perez@example.com",
+        id_est=1 # Cesfam Carol Urzúa
+    )
+    profesional1 = Profesional(
+        rut_pro="20.484.529-8",
+        nombre="Dra. Ana Rodríguez",
+        especialidad="Psicólogo(a)"
+    )
+    sic1 = Sic(
+        rut_pro=profesional1.rut_pro,
+        rut_pac=paciente1.rut_pac,
+        id_est_orig=1, # Origen: Cesfam Carol Urzúa
+        id_est_dest=22, # Destino: COSAM SSMO
+        tipo_consulta="Confirmación diagnóstica",
+        especialidad_orig="Psicólogo(a)",
+        especialidad_dest="Psiquiatría Adulto",
+        diagnostico="Sospecha de Trastorno de Ansiedad Generalizada.",
+        ges="No",
+        prioridad="Media"
+    )
+
+    db.session.add_all([paciente1, profesional1, sic1])
+    db.session.commit()
+
+    print("Base de datos poblada con datos de prueba.")
 
 
 if __name__ == "__main__":

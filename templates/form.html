@@ -25,36 +25,19 @@
       <div class="field-grid">
         <label>
           <span>Servicio de salud *</span>
-          <input type="text" name="servicio_salud" value="{{ campos.servicio_salud }}" required />
-        </label>
-        <label>
-          <span>Establecimiento</span>
-          <input type="text" name="establecimiento" value="{{ campos.establecimiento }}" />
-        </label>
-        <label>
-          <span>Especialidad</span>
-          <input type="text" name="especialidad" value="{{ campos.especialidad }}" />
-        </label>
-        <label>
-          <span>Unidad</span>
-          <input type="text" name="unidad" value="{{ campos.unidad }}" />
+          <input type="text" name="servicio_salud" value="Metropolitano Oriente" readonly required />
         </label>
         <label>
           <span>Nombre completo *</span>
-          <input type="text" name="nombre" value="{{ campos.nombre }}" required />
+          <input type="text" name="nombre_paciente" value="{{ campos.nombre_paciente }}" required />
         </label>
         <label>
           <span>Historia clínica</span>
-          <input type="text" name="historia_clinica" value="{{ campos.historia_clinica }}" inputmode="numeric" pattern="[0-9]*" data-only-digits />
+          <input type="text" name="historia_clinica" value="{{ campos.historia_clinica }}" inputmode="text" pattern="[0-9]*" data-only-digits />
         </label>
         <label>
           <span>RUT paciente *</span>
-          <input type="text" name="rut" value="{{ campos.rut }}" placeholder="11.111.111-1" data-rut required />
-          <small class="field-note">Si el RUT termina en K, ingrese 0.</small>
-        </label>
-        <label>
-          <span>RUT apoderado/padre (opcional)</span>
-          <input type="text" name="rut_padre" value="{{ campos.rut_padre }}" placeholder="22.222.222-2" data-rut />
+          <input type="text" name="rut_pac" value="{{ campos.rut_pac }}" placeholder="11.111.111-1" data-rut required />
           <small class="field-note">Si el RUT termina en K, ingrese 0.</small>
         </label>
         <label>
@@ -107,18 +90,129 @@
     </section>
 
     <section>
-      <h3>Datos médicos</h3>
+      <h3>Datos médicos de la interconsulta (SIC)</h3>
       <div class="field-grid">
+        
         <label>
-          <span>Establecimiento de derivación</span>
-          <input type="text" name="establecimiento_derivacion" value="{{ campos.establecimiento_derivacion }}" />
+          <span>Establecimiento de Origen *</span>
+          <select name="id_est_orig" id="id_est_orig_select" required>
+            <option value="">Seleccione un establecimiento</option>
+            <optgroup label="Salud Mental">
+              <option value="22" {% if campos.id_est_orig == '22' %}selected{% endif %}>COSAM SSMO</option>
+            </optgroup>
+            <optgroup label="Peñalolén">
+              <option value="1" {% if campos.id_est_orig == '1' %}selected{% endif %}>Cesfam Carol Urzúa</option>
+              <option value="2" {% if campos.id_est_orig == '2' %}selected{% endif %}>Cesfam La Faena</option>
+              <option value="3" {% if campos.id_est_orig == '3' %}selected{% endif %}>Cesfam Lo Hermida</option>
+              <option value="4" {% if campos.id_est_orig == '4' %}selected{% endif %}>Cesfam San Luis</option>
+              <option value="5" {% if campos.id_est_orig == '5' %}selected{% endif %}>Cesfam Cardenal Silva Henríquez</option>
+              <option value="6" {% if campos.id_est_orig == '6' %}selected{% endif %}>Cesfam Padre Whelan</option>
+              <option value="7" {% if campos.id_est_orig == '7' %}selected{% endif %}>Cesfam Las Torres</option>
+            </optgroup>
+            <optgroup label="Macul">
+              <option value="8" {% if campos.id_est_orig == '8' %}selected{% endif %}>Cesfam Félix de Amesti</option>
+              <option value="9" {% if campos.id_est_orig == '9' %}selected{% endif %}>Cesfam Santa Julia</option>
+              <option value="10" {% if campos.id_est_orig == '10' %}selected{% endif %}>Cesfam Alberto Hurtado</option>
+            </optgroup>
+            <optgroup label="Ñuñoa">
+              <option value="11" {% if campos.id_est_orig == '11' %}selected{% endif %}>Cesfam Rosita Renard</option>
+              <option value="12" {% if campos.id_est_orig == '12' %}selected{% endif %}>Cesfam Salvador Bustos</option>
+            </optgroup>
+            <optgroup label="La Reina">
+              <option value="13" {% if campos.id_est_orig == '13' %}selected{% endif %}>Cesfam Ossandón</option>
+              <option value="14" {% if campos.id_est_orig == '14' %}selected{% endif %}>Cesfam Juan Pablo II</option>
+            </optgroup>
+            <optgroup label="Providencia">
+              <option value="15" {% if campos.id_est_orig == '15' %}selected{% endif %}>Cesfam Hernán Alessandri</option>
+              <option value="16" {% if campos.id_est_orig == '16' %}selected{% endif %}>Cesfam El Aguilucho</option>
+              <option value="17" {% if campos.id_est_orig == '17' %}selected{% endif %}>Cesfam Dr. Alfonso Leng</option>
+            </optgroup>
+            <optgroup label="Las Condes">
+              <option value="18" {% if campos.id_est_orig == '18' %}selected{% endif %}>Cesfam Apoquindo</option>
+              <option value="19" {% if campos.id_est_orig == '19' %}selected{% endif %}>Cesfam Aníbal Ariztía</option>
+            </optgroup>
+            <optgroup label="Vitacura">
+              <option value="20" {% if campos.id_est_orig == '20' %}selected{% endif %}>Cesfam Vitacura</option>
+            </optgroup>
+            <optgroup label="Lo Barnechea">
+              <option value="21" {% if campos.id_est_orig == '21' %}selected{% endif %}>Cesfam Lo Barnechea</option>
+            </optgroup>
+          </select>
+        </label>
+
+        <label>
+          <span>Establecimiento de Destino *</span>
+          <select name="id_est_dest" id="id_est_dest_select" required>
+            <option value="">Seleccione un establecimiento</option>
+            <optgroup label="Salud Mental">
+              <option value="22" {% if campos.id_est_dest == '22' %}selected{% endif %}>COSAM SSMO</option>
+            </optgroup>
+            <optgroup label="Peñalolén">
+              <option value="1" {% if campos.id_est_dest == '1' %}selected{% endif %}>Cesfam Carol Urzúa</option>
+              <option value="2" {% if campos.id_est_dest == '2' %}selected{% endif %}>Cesfam La Faena</option>
+              <option value="3" {% if campos.id_est_dest == '3' %}selected{% endif %}>Cesfam Lo Hermida</option>
+              <option value="4" {% if campos.id_est_dest == '4' %}selected{% endif %}>Cesfam San Luis</option>
+              <option value="5" {% if campos.id_est_dest == '5' %}selected{% endif %}>Cesfam Cardenal Silva Henríquez</option>
+              <option value="6" {% if campos.id_est_dest == '6' %}selected{% endif %}>Cesfam Padre Whelan</option>
+              <option value="7" {% if campos.id_est_dest == '7' %}selected{% endif %}>Cesfam Las Torres</option>
+            </optgroup>
+            <optgroup label="Macul">
+              <option value="8" {% if campos.id_est_dest == '8' %}selected{% endif %}>Cesfam Félix de Amesti</option>
+              <option value="9" {% if campos.id_est_dest == '9' %}selected{% endif %}>Cesfam Santa Julia</option>
+              <option value="10" {% if campos.id_est_dest == '10' %}selected{% endif %}>Cesfam Alberto Hurtado</option>
+            </optgroup>
+            <optgroup label="Ñuñoa">
+              <option value="11" {% if campos.id_est_dest == '11' %}selected{% endif %}>Cesfam Rosita Renard</option>
+              <option value="12" {% if campos.id_est_dest == '12' %}selected{% endif %}>Cesfam Salvador Bustos</option>
+            </optgroup>
+            <optgroup label="La Reina">
+              <option value="13" {% if campos.id_est_dest == '13' %}selected{% endif %}>Cesfam Ossandón</option>
+              <option value="14" {% if campos.id_est_dest == '14' %}selected{% endif %}>Cesfam Juan Pablo II</option>
+            </optgroup>
+            <optgroup label="Providencia">
+              <option value="15" {% if campos.id_est_dest == '15' %}selected{% endif %}>Cesfam Hernán Alessandri</option>
+              <option value="16" {% if campos.id_est_dest == '16' %}selected{% endif %}>Cesfam El Aguilucho</option>
+              <option value="17" {% if campos.id_est_dest == '17' %}selected{% endif %}>Cesfam Dr. Alfonso Leng</option>
+            </optgroup>
+            <optgroup label="Las Condes">
+              <option value="18" {% if campos.id_est_dest == '18' %}selected{% endif %}>Cesfam Apoquindo</option>
+              <option value="19" {% if campos.id_est_dest == '19' %}selected{% endif %}>Cesfam Aníbal Ariztía</option>
+            </optgroup>
+            <optgroup label="Vitacura">
+              <option value="20" {% if campos.id_est_dest == '20' %}selected{% endif %}>Cesfam Vitacura</option>
+            </optgroup>
+            <optgroup label="Lo Barnechea">
+              <option value="21" {% if campos.id_est_dest == '21' %}selected{% endif %}>Cesfam Lo Barnechea</option>
+            </optgroup>
+          </select>
+        </label>
+
+        <label>
+          <span>Especialidad de Origen</span>
+          <select name="especialidad_orig">
+            <option value="" disabled {% if not campos.especialidad_orig %}selected{% endif %}>Seleccione especialidad</option>
+            <option value="Psiquiatría Adulto" {% if campos.especialidad_orig == 'Psiquiatría Adulto' %}selected{% endif %}>Psiquiatría Adulto</option>
+            <option value="Psiquiatra Infanto Adolescente" {% if campos.especialidad_orig == 'Psiquiatra Infanto Adolescente' %}selected{% endif %}>Psiquiatra Infanto Adolescente</option>
+            <option value="Químico Farmacéutico" {% if campos.especialidad_orig == 'Químico Farmacéutico' %}selected{% endif %}>Químico Farmacéutico</option>
+            <option value="Psicólogo(a)" {% if campos.especialidad_orig == 'Psicólogo(a)' %}selected{% endif %}>Psicólogo(a)</option>
+            <option value="Trabajador(a) Social" {% if campos.especialidad_orig == 'Trabajador(a) Social' %}selected{% endif %}>Trabajador(a) Social</option>
+            <option value="Terapeuta Ocupacional" {% if campos.especialidad_orig == 'Terapeuta Ocupacional' %}selected{% endif %}>Terapeuta Ocupacional</option>
+            <option value="Enfermera(o)" {% if campos.especialidad_orig == 'Enfermera(o)' %}selected{% endif %}>Enfermera(o)</option>
+            <option value="Psicopedagogo(a)" {% if campos.especialidad_orig == 'Psicopedagogo(a)' %}selected{% endif %}>Psicopedagogo(a)</option>
+          </select>
         </label>
         <label>
-          <span>Grupo poblacional específico</span>
-          <select name="grupo_poblacional">
-            <option value="" disabled {% if not campos.grupo_poblacional %}selected{% endif %}>Seleccione</option>
-            <option value="Sí" {% if campos.grupo_poblacional == 'Sí' %}selected{% endif %}>Sí</option>
-            <option value="No" {% if campos.grupo_poblacional == 'No' %}selected{% endif %}>No</option>
+          <span>Especialidad de Destino</span>
+          <select name="especialidad_dest">
+            <option value="" disabled {% if not campos.especialidad_dest %}selected{% endif %}>Seleccione especialidad</option>
+            <option value="Psiquiatría Adulto" {% if campos.especialidad_dest == 'Psiquiatría Adulto' %}selected{% endif %}>Psiquiatría Adulto</option>
+            <option value="Psiquiatra Infanto Adolescente" {% if campos.especialidad_dest == 'Psiquiatra Infanto Adolescente' %}selected{% endif %}>Psiquiatra Infanto Adolescente</option>
+            <option value="Químico Farmacéutico" {% if campos.especialidad_dest == 'Químico Farmacéutico' %}selected{% endif %}>Químico Farmacéutico</option>
+            <option value="Psicólogo(a)" {% if campos.especialidad_dest == 'Psicólogo(a)' %}selected{% endif %}>Psicólogo(a)</option>
+            <option value="Trabajador(a) Social" {% if campos.especialidad_dest == 'Trabajador(a) Social' %}selected{% endif %}>Trabajador(a) Social</option>
+            <option value="Terapeuta Ocupacional" {% if campos.especialidad_dest == 'Terapeuta Ocupacional' %}selected{% endif %}>Terapeuta Ocupacional</option>
+            <option value="Enfermera(o)" {% if campos.especialidad_dest == 'Enfermera(o)' %}selected{% endif %}>Enfermera(o)</option>
+            <option value="Psicopedagogo(a)" {% if campos.especialidad_dest == 'Psicopedagogo(a)' %}selected{% endif %}>Psicopedagogo(a)</option>
           </select>
         </label>
         <label>
@@ -143,24 +237,29 @@
           </select>
         </label>
         <label class="wide">
-          <span>Hipótesis diagnóstica</span>
-          <textarea name="hipotesis_diagnostico" rows="3">{{ campos.hipotesis_diagnostico }}</textarea>
+          <span>Hipótesis diagnóstica *</span>
+          <textarea name="diagnostico" rows="3" required>{{ campos.diagnostico }}</textarea>
         </label>
         <label class="wide">
           <span>¿Caso GES?</span>
-          <select name="es_ges">
-            <option value="" disabled {% if not campos.es_ges %}selected{% endif %}>Seleccione</option>
-            <option value="Sí" {% if campos.es_ges == 'Sí' %}selected{% endif %}>Sí</option>
-            <option value="No" {% if campos.es_ges == 'No' %}selected{% endif %}>No</option>
+          <select name="ges">
+            <option value="" disabled {% if not campos.ges %}selected{% endif %}>Seleccione</option>
+            <option value="Sí" {% if campos.ges == 'Sí' %}selected{% endif %}>Sí</option>
+            <option value="No" {% if campos.ges == 'No' %}selected{% endif %}>No</option>
           </select>
         </label>
         <label class="wide">
-          <span>Fundamento diagnóstico</span>
-          <textarea name="fundamento_diagnostico" rows="3">{{ campos.fundamento_diagnostico }}</textarea>
-        </label>
-        <label class="wide">
           <span>Exámenes realizados</span>
-          <textarea name="examenes_realizados" rows="3">{{ campos.examenes_realizados }}</textarea>
+          <textarea name="examenes" rows="3">{{ campos.examenes }}</textarea>
+        </label>
+        <label>
+          <span>Prioridad</span>
+          <select name="prioridad">
+            <option value="" disabled {% if not campos.prioridad %}selected{% endif %}>Seleccione prioridad</option>
+            <option value="Alta" {% if campos.prioridad == 'Alta' %}selected{% endif %}>Alta</option>
+            <option value="Media" {% if campos.prioridad == 'Media' %}selected{% endif %}>Media</option>
+            <option value="Baja" {% if campos.prioridad == 'Baja' %}selected{% endif %}>Baja</option>
+          </select>
         </label>
       </div>
     </section>
@@ -170,7 +269,15 @@
       <p class="section-description">Seleccione todas las patologías que apliquen.</p>
       <div class="checkbox-grid">
         {% set seleccionadas = campos.patologias_ges.split(';') if campos.patologias_ges else [] %}
-        {% for patologia in patologias_catalogo %}
+        {% set patologias_ges_catalogo = [
+            'Esquizofrenia',
+            'Depresión (para mayores de 15 años)',
+            'Trastorno bipolar (para mayores de 15 años)',
+            'Demencia (incluida la enfermedad de Alzheimer)',
+            'Consumo problemático de alcohol y drogas en menores de 20 años (riesgo bajo a moderado)',
+            'Tratamiento de hospitalización para menores de 15 años con depresión grave'
+        ] %}
+        {% for patologia in patologias_ges_catalogo %}
           <label class="checkbox-item">
             <input type="checkbox" name="patologias_ges" value="{{ patologia }}" {% if patologia in seleccionadas %}checked{% endif %} />
             <span>{{ patologia }}</span>
@@ -183,12 +290,12 @@
       <h3>Profesional responsable</h3>
       <div class="field-grid">
         <label>
-          <span>Nombre médico</span>
-          <input type="text" name="nombre_medico" value="{{ campos.nombre_medico }}" />
+          <span>Nombre médico *</span>
+          <input type="text" name="nombre_medico" value="{{ campos.nombre_medico }}" required/>
         </label>
         <label>
-          <span>RUT médico</span>
-          <input type="text" name="rut_medico" value="{{ campos.rut_medico }}" placeholder="33.333.333-3" data-rut />
+          <span>RUT médico *</span>
+          <input type="text" name="rut_pro" value="{{ campos.rut_pro }}" placeholder="33.333.333-3" data-rut required/>
           <small class="field-note">Si el RUT termina en K, ingrese 0.</small>
         </label>
       </div>
@@ -199,4 +306,52 @@
       <a class="secondary" href="{{ url_for('listar_formularios') }}">Ver registros existentes</a>
     </div>
   </form>
+
+  <style>
+    .readonly-style {
+      pointer-events: none;
+      background-color: #e9ecef;
+      opacity: 1;
+    }
+  </style>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const origenSelect = document.getElementById('id_est_orig_select');
+      const destinoSelect = document.getElementById('id_est_dest_select');
+      const cosamValue = '22';
+
+      function actualizarDestino() {
+        const origenId = origenSelect.value;
+
+        // Reset styles and state first
+        destinoSelect.classList.remove('readonly-style');
+        for (let option of destinoSelect.options) {
+            option.hidden = false;
+        }
+
+        if (origenId && origenId !== cosamValue) {
+          // Origen es un CESFAM, destino debe ser COSAM
+          destinoSelect.value = cosamValue;
+          destinoSelect.classList.add('readonly-style');
+        } else if (origenId === cosamValue) {
+          // Origen es COSAM, destino puede ser cualquier CESFAM
+          if (destinoSelect.value === cosamValue) {
+            destinoSelect.value = ''; // Reset selection
+          }
+          // Ocultar COSAM de las opciones de destino
+          for (let option of destinoSelect.options) {
+            option.hidden = (option.value === cosamValue);
+          }
+        } else {
+          // No hay origen seleccionado, resetear destino
+          destinoSelect.value = '';
+        }
+      }
+
+      // Ejecutar al cargar la página y cada vez que cambie el origen
+      origenSelect.addEventListener('change', actualizarDestino);
+      actualizarDestino();
+    });
+  </script>
 {% endblock %}
