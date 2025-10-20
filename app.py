@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import re
 
-from flask import Flask, flash, redirect, render_template, request, url_for
+from flask import Flask, flash, redirect, render_template, request, url_for, jsonify, abort
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import joinedload
 
@@ -438,6 +438,98 @@ def inject_globals():
     }
 
 
+def _establecimiento_to_dict(e: Establecimiento) -> Dict[str, Optional[str]]:
+    return {
+        "id_est": e.id_est,
+        "nombre": e.nombre,
+        "servicio_salud": e.servicio_salud,
+    }
+
+
+def _paciente_to_dict(p: Paciente) -> Dict[str, Optional[str]]:
+    return {
+        "rut_pac": p.rut_pac,
+        "id_est": p.id_est,
+        "nombre": p.nombre,
+        "historia_clinica": p.historia_clinica,
+        "sexo": p.sexo,
+        "fecha_nacimiento": p.fecha_nacimiento.isoformat() if p.fecha_nacimiento else None,
+        "edad": p.edad,
+        "domicilio": p.domicilio,
+        "comuna": p.comuna,
+        "telefono1": p.telefono1,
+        "telefono2": p.telefono2,
+        "correo1": p.correo1,
+        "correo2": p.correo2,
+    }
+
+
+def _profesional_to_dict(pr: Profesional) -> Dict[str, Optional[str]]:
+    return {
+        "rut_pro": pr.rut_pro,
+        "nombre": pr.nombre,
+        "especialidad": pr.especialidad,
+    }
+
+
+def _sic_to_dict(s: Sic) -> Dict[str, Optional[str]]:
+    return {
+        "id_sic": s.id_sic,
+        "rut_pro": s.rut_pro,
+        "rut_pac": s.rut_pac,
+        "id_est_orig": s.id_est_orig,
+        "id_est_dest": s.id_est_dest,
+        "tipo_consulta": s.tipo_consulta,
+        "especialidad_orig": s.especialidad_orig,
+        "especialidad_dest": s.especialidad_dest,
+        "diagnostico": s.diagnostico,
+        "examenes": s.examenes,
+        "ges": s.ges,
+        "ges_des": s.ges_des,
+        "prioridad": s.prioridad,
+        "fecha_creacion": s.fecha_creacion.isoformat() if s.fecha_creacion else None,
+        "paciente": _paciente_to_dict(s.paciente) if s.paciente else None,
+        "profesional": _profesional_to_dict(s.profesional) if s.profesional else None,
+        "establecimiento_origen": _establecimiento_to_dict(s.establecimiento_origen) if s.establecimiento_origen else None,
+        "establecimiento_destino": _establecimiento_to_dict(s.establecimiento_destino) if s.establecimiento_destino else None,
+    }
+
+
+# --- API mínima para pruebas con Postman ---
+@app.route("/api/establecimientos", methods=["GET"])
+def api_establecimientos():
+    establecimientos = Establecimiento.query.order_by(Establecimiento.id_est).all()
+    return jsonify([_establecimiento_to_dict(e) for e in establecimientos])
+
+
+@app.route("/api/sics", methods=["GET"])
+def api_sics():
+    q = (
+        Sic.query.options(
+            joinedload(Sic.paciente),
+            joinedload(Sic.profesional),
+            joinedload(Sic.establecimiento_origen),
+            joinedload(Sic.establecimiento_destino),
+        )
+        .order_by(Sic.id_sic.desc())
+    )
+    sics = q.all()
+    return jsonify([_sic_to_dict(s) for s in sics])
+
+
+@app.route("/api/sics/<int:sic_id>", methods=["GET"])
+def api_sic_detalle(sic_id: int):
+    s: Optional[Sic] = (
+        Sic.query.options(
+            joinedload(Sic.paciente),
+            joinedload(Sic.profesional),
+            joinedload(Sic.establecimiento_origen),
+            joinedload(Sic.establecimiento_destino),
+        ).get(sic_id)
+    )
+    if not s:
+        abort(404)
+    return jsonify(_sic_to_dict(s))
 @app.cli.command("seed-db")
 def seed_db():
     """Borra y repuebla la base de datos con datos de prueba."""
