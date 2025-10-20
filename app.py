@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -12,7 +12,7 @@ from flask_sqlalchemy import SQLAlchemy
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "ssmo.db"
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.config.update(
     SECRET_KEY="cambio-esto-en-produccion",
     SQLALCHEMY_DATABASE_URI=f"sqlite:///{DATABASE_PATH}",
@@ -69,26 +69,26 @@ class MedicalForm(db.Model):
     def resumen_texto(self) -> str:
         """Genera un texto de resumen con los datos del formulario."""
 
-        patologias = ", ".join(self.patologias_ges_lista()) or "Sin patologías GES registradas"
+        patologias = ", ".join(self.patologias_ges_lista()) or "Sin patologí­as GES registradas"
         return (
             "FORMULARIO GUARDADO\n"
             "===================\n\n"
             f"Fecha de registro: {self.created_at.strftime('%d/%m/%Y %H:%M')}\n\n"
             "DATOS PERSONALES\n"
-            f"• Nombre: {self.nombre or 'No especificado'}\n"
-            f"• RUT: {self.rut or 'No especificado'}\n"
-            f"• Fecha de nacimiento: {self.fecha_nacimiento or 'No especificada'}\n"
-            f"• Edad: {self.edad or 'No especificada'}\n"
-            f"• Comuna: {self.comuna or 'No especificada'}\n\n"
+            f"- Nombre: {self.nombre or 'No especificado'}\n"
+            f"- RUT: {self.rut or 'No especificado'}\n"
+            f"- Fecha de nacimiento: {self.fecha_nacimiento or 'No especificada'}\n"
+            f"- Edad: {self.edad or 'No especificada'}\n"
+            f"- Comuna: {self.comuna or 'No especificada'}\n\n"
             "DATOS MÉDICOS\n"
-            f"• Especialidad: {self.especialidad or 'No especificada'}\n"
-            f"• Tipo de consulta: {self.tipo_consulta or 'No especificado'}\n"
-            f"• Hipótesis diagnóstica: {self.hipotesis_diagnostico or 'No especificada'}\n"
-            f"• Exámenes realizados: {self.examenes_realizados or 'No especificados'}\n"
-            f"• Médico responsable: {self.nombre_medico or 'No especificado'}\n\n"
+            f"- Especialidad: {self.especialidad or 'No especificada'}\n"
+            f"- Tipo de consulta: {self.tipo_consulta or 'No especificado'}\n"
+            f"- Hipótesis diagnóstica: {self.hipotesis_diagnostico or 'No especificada'}\n"
+            f"- Exámenes realizados: {self.examenes_realizados or 'No especificados'}\n"
+            f"- Médico responsable: {self.nombre_medico or 'No especificado'}\n\n"
             "GES\n"
-            f"• Caso GES: {self.es_ges or 'No especificado'}\n"
-            f"• Patologías declaradas: {patologias}\n"
+            f"- Patología GES: {patologias}\n"
+            f"- \n"
         )
 
 
@@ -124,11 +124,12 @@ FORM_FIELDS: List[str] = [
 ]
 
 PATOLOGIAS_GES: List[str] = [
-    "Trastorno depresivo mayor",
     "Esquizofrenia",
-    "Consumo perjudicial de alcohol y drogas",
-    "Trastorno de ansiedad",
-    "Trastorno del espectro autista",
+    "Depresión (para mayores de 15 años)",
+    "Trastorno bipolar (para mayores de 15 años)",
+    "Demencia (incluida la enfermedad de Alzheimer)",
+    "Consumo problemático de alcohol y drogas en menores de 20 años (riesgo bajo a moderado)",
+    "Tratamiento de hospitalización para menores de 15 años con depresión grave",
 ]
 
 COMUNAS: List[str] = [
@@ -149,8 +150,6 @@ TIPOS_CONSULTA: List[str] = [
     "Seguimiento",
     "Otro",
 ]
-
-
 def _limpiar_rut(rut: str) -> str:
     return "".join(ch for ch in rut if ch.isdigit() or ch in {"K", "k"})
 
@@ -209,6 +208,8 @@ def _extraer_datos_formulario(form_data) -> Dict[str, Optional[str]]:
     datos["tipo_consulta"] = tipo_consulta
     for rut_field in ("rut", "rut_padre", "rut_medico"):
         datos[rut_field] = _normalizar_rut(datos.get(rut_field, ""))
+    # Servicio de Salud fijo según requerimiento
+    datos["servicio_salud"] = "Metropolitano Oriente"
     return datos
 
 
@@ -239,11 +240,7 @@ def _validar_datos(datos: Dict[str, str]) -> List[str]:
     correo2 = (datos.get("correo2", "").strip())
     if correo2 and not _email_valido(correo2):
         errores.append("El correo 2 no es válido.")
-    historia = (datos.get("historia_clinica", "").strip())
-    if historia and not historia.isdigit():
-        errores.append("La historia clínica debe contener solo dígitos.")
-
-    # Teléfonos: solo dígitos y '+' inicial opcional
+    # Teléfonos: solo dí­gitos y '+' inicial opcional
     telefono1 = (datos.get("telefono1", "").strip())
     telefono2 = (datos.get("telefono2", "").strip())
     telefono_pat = re.compile(r"^\+?\d+$")
@@ -260,7 +257,7 @@ def _validar_datos(datos: Dict[str, str]) -> List[str]:
 
 
 def _rut_valido(rut: str) -> bool:
-    """Valida RUT chileno considerando dígito verificador."""
+    """Valida RUT chileno considerando dí­gito verificador."""
 
     limpio = _limpiar_rut(rut).upper()
     if len(limpio) < 2 or not limpio[:-1].isdigit():
@@ -319,12 +316,125 @@ def ver_formulario(form_id: int):
     return render_template("summary.html", registro=registro)
 
 
+# Catálogo de establecimientos de Atencií³n Primaria (CESFAM) por comuna
+ESTABLECIMIENTOS_POR_COMUNA: Dict[str, List[str]] = {
+    "Peñalolén": [
+        "Cesfam Carol Urzúa",
+        "Cesfam La Faena",
+        "Cesfam Lo Hermida",
+        "Cesfam San Luis",
+        "Cesfam Cardenal Silva Henríquez",
+        "Cesfam Padre Whelan",
+        "Cesfam Las Torres",
+    ],
+    "Macul": [
+        "Cesfam Félix de Amesti",
+        "Cesfam Santa Julia",
+        "Cesfam Alberto Hurtado",
+    ],
+    "Ñuñoa": [
+        "Cesfam Rosita Renard",
+        "Cesfam Salvador Bustos",
+    ],
+    "La Reina": [
+        "Cesfam Ossandón",
+        "Cesfam Juan Pablo II",
+    ],
+    "Providencia": [
+        "Cesfam Hernán Alessandri",
+        "Cesfam El Aguilucho",
+        "Cesfam Dr. Alfonso Leng",
+    ],
+    "Las Condes": [
+        "Cesfam Apoquindo",
+        "Cesfam Aníbal Ariztía",
+    ],
+    "Vitacura": [
+        "Cesfam Vitacura",
+    ],
+    "Lo Barnechea": [
+        "Cesfam Lo Barnechea",
+    ],
+}# Catálogo de especialidades
+ESPECIALIDADES: List[str] = [
+    "Psiquiatrí­a Adulto",
+    "Psiquiatrí­a Infanto Adolescente",
+    "Quí­mico Farmacéutico",
+    "Psicílogo(a)",
+    "Trabajador(a) Social",
+    "Terapeuta Ocupacional",
+    "Enfermera(o)",
+    "Psicopedagogo(a)",
+]
+
+# Normalización de textos con acentos (forzamos valores correctos)
+COMUNAS = [
+    "Las Condes",
+    "Lo Barnechea",
+    "La Reina",
+    "Macul",
+    "\u00d1u\u00f1oa",
+    "Pe\u00f1alol\u00e9n",
+    "Providencia",
+    "Vitacura",
+    "Isla de Pascua",
+]
+
+TIPOS_CONSULTA = [
+    "Confirmaci\u00f3n diagn\u00f3stica",
+    "Realizar tratamiento",
+    "Seguimiento",
+    "Otro",
+]
+
+ESTABLECIMIENTOS_POR_COMUNA = {
+    "Pe\u00f1alol\u00e9n": [
+        "Cesfam Carol Urz\u00faa",
+        "Cesfam La Faena",
+        "Cesfam Lo Hermida",
+        "Cesfam San Luis",
+        "Cesfam Cardenal Silva Henr\u00edquez",
+        "Cesfam Padre Whelan",
+        "Cesfam Las Torres",
+    ],
+    "Macul": [
+        "Cesfam F\u00e9lix de Amesti",
+        "Cesfam Santa Julia",
+        "Cesfam Alberto Hurtado",
+    ],
+    "\u00d1u\u00f1oa": [
+        "Cesfam Rosita Renard",
+        "Cesfam Salvador Bustos",
+    ],
+    "La Reina": [
+        "Cesfam Ossand\u00f3n",
+        "Cesfam Juan Pablo II",
+    ],
+    "Providencia": [
+        "Cesfam Hern\u00e1n Alessandri",
+        "Cesfam El Aguilucho",
+        "Cesfam Dr. Alfonso Leng",
+    ],
+    "Las Condes": [
+        "Cesfam Apoquindo",
+        "Cesfam An\u00edbal Arizt\u00eda",
+    ],
+    "Vitacura": [
+        "Cesfam Vitacura",
+    ],
+    "Lo Barnechea": [
+        "Cesfam Lo Barnechea",
+    ],
+}
+
 @app.context_processor
 def inject_globals():
     return {
         "patologias_catalogo": PATOLOGIAS_GES,
         "comunas_catalogo": COMUNAS,
         "tipos_consulta_catalogo": TIPOS_CONSULTA,
+        "especialidades_catalogo": ESPECIALIDADES,
+        "establecimientos_catalogo": ESTABLECIMIENTOS_POR_COMUNA,
     }
 
 
@@ -341,3 +451,4 @@ def inicializar_db():
 
 if __name__ == "__main__":
     app.run(debug=True)
+

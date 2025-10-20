@@ -9,9 +9,12 @@
   </head>
   <body>
     <header class="app-header">
-      <div class="container">
-        <h1>Servicio de Salud Metropolitano Oriente</h1>
-        <nav>
+      <div class="container header-inner">
+        <div class="brand">
+          <img src="{{ url_for('static', filename='img/logo-minsal.png') }}" alt="Logo SSMO" class="brand-logo">
+          <h1>Solicitud de Interconsulta o Derivación</h1>
+        </div>
+        <nav class="header-nav">
           <a href="{{ url_for('formulario') }}">Nuevo formulario</a>
           <a href="{{ url_for('listar_formularios') }}">Formularios guardados</a>
         </nav>
@@ -34,7 +37,7 @@
 
     <footer class="app-footer">
       <div class="container">
-        <p>SSMO · Gestión de formularios médicos</p>
+        <p>SSMO - Gestión de formularios médicos</p>
       </div>
     </footer>
     <script src="{{ url_for('static', filename='form.js') }}" defer></script>

@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', () => {
+﻿document.addEventListener('DOMContentLoaded', () => {
   const fechaNacimientoInput = document.querySelector('input[name="fecha_nacimiento"]');
   const edadInput = document.querySelector('input[name="edad"]');
   const rutInputs = document.querySelectorAll('input[data-rut]');
@@ -106,7 +106,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const formateado = formatearRut(valor);
     input.value = formateado;
     if (!rutValido(formateado)) {
-      input.setCustomValidity('El RUT ingresado no es válido.');
+      input.setCustomValidity('El RUT ingresado no es vÃƒÂ¡lido.');
       input.reportValidity();
     } else {
       input.setCustomValidity('');
@@ -132,7 +132,7 @@ document.addEventListener('DOMContentLoaded', () => {
     actualizarEdad();
   }
 
-  // Solo dígitos (historia clínica, etc.)
+  // Solo dÃƒÂ­gitos (historia clÃƒÂ­nica, etc.)
   const soloDigitos = (input) => {
     const limpio = input.value.replace(/\D+/g, '');
     if (input.value !== limpio) input.value = limpio;
@@ -143,7 +143,7 @@ document.addEventListener('DOMContentLoaded', () => {
     soloDigitos(el);
   });
 
-  // Validación de email básica con mensaje amigable
+  // ValidaciÃƒÂ³n de email bÃƒÂ¡sica con mensaje amigable
   const emailValido = (valor) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(valor);
   const validarEmailInput = (input, obligatorio = false) => {
     const v = (input?.value || '').trim();
@@ -152,7 +152,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     if (!emailValido(v)) {
-      input?.setCustomValidity('Ingrese un correo electrónico válido.');
+      input?.setCustomValidity('Ingrese un correo electrÃƒÂ³nico vÃƒÂ¡lido.');
     } else {
       input?.setCustomValidity('');
     }
@@ -170,28 +170,28 @@ document.addEventListener('DOMContentLoaded', () => {
     handler2();
   }
 
-  // Teléfonos: permitir solo dígitos y un '+' inicial opcional
+  // TelÃƒÂ©fonos: permitir solo dÃƒÂ­gitos y un '+' inicial opcional
   const normalizarTelefono = (valor) => {
     if (!valor) return '';
-    // eliminar todo excepto dígitos y "+"
+    // eliminar todo excepto dÃƒÂ­gitos y "+"
     let limpio = valor.replace(/[^\d+]/g, '');
-    // si hay múltiples '+', dejar sólo uno al inicio
+    // si hay mÃƒÂºltiples '+', dejar sÃƒÂ³lo uno al inicio
     const tieneMas = (limpio.match(/\+/g) || []).length > 1;
     limpio = limpio.replace(/\+/g, '');
-    // reconstruir con '+' inicial si la cadena original empezaba con '+' o si había al menos uno
+    // reconstruir con '+' inicial si la cadena original empezaba con '+' o si habÃƒÂ­a al menos uno
     const empiezaMas = valor.trim().startsWith('+') || tieneMas;
     return (empiezaMas ? '+' : '') + limpio;
   };
   const validarTelefono = (input, obligatorio = false) => {
     const v = (input?.value || '').trim();
     if (!v) {
-      input?.setCustomValidity(obligatorio ? 'Este teléfono es obligatorio.' : '');
+      input?.setCustomValidity(obligatorio ? 'Este telÃƒÂ©fono es obligatorio.' : '');
       return;
     }
     const normal = normalizarTelefono(v);
     if (normal !== v) input.value = normal;
     const ok = /^\+?\d+$/.test(normal);
-    input?.setCustomValidity(ok ? '' : 'Ingrese solo números y un "+" inicial.');
+    input?.setCustomValidity(ok ? '' : 'Ingrese solo nÃƒÂºmeros y un "+" inicial.');
   };
   phoneInputs.forEach((el) => {
     const obligatorio = el.getAttribute('name') === 'telefono1';
@@ -203,7 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Eliminado el checkbox de "menor de edad"; el campo apoderado queda visible y opcional
 
-  // --- Tipo de consulta -> muestra detalle sólo si es "Otro" ---
+  // --- Tipo de consulta -> muestra detalle sÃƒÂ³lo si es "Otro" ---
   const consultaSelector = document.querySelector('[data-consulta-selector]');
   const consultaOtro     = document.querySelector('[data-consulta-otro]');
 
@@ -222,6 +222,68 @@ document.addEventListener('DOMContentLoaded', () => {
     actualizarConsulta(); // estado inicial
   }
 
-  // Actualizar el indicador visual (img2) en función de la selección real
-  
+  // --- Establecimientos dependientes de comuna (general) ---
+  const EST_CATALOGO = (window.EST_CATALOGO || {});
+  const EST_PRE = (window.EST_PRESELECCIONADO || '');
+  const DER_PRE = (window.DER_PRESELECCIONADO || '');
+
+  const buscarComunaPorEstablecimiento = (nombre) => {
+    if (!nombre) return '';
+    for (const [com, lista] of Object.entries(EST_CATALOGO)) {
+      if (lista.includes(nombre)) return com;
+    }
+    return '';
+  };
+
+  const poblarEstablecimientosEn = (selectEl, comuna, preselect = '') => {
+    if (!selectEl) return;
+    const opciones = EST_CATALOGO[comuna] || [];
+    const current = selectEl.value;
+    selectEl.innerHTML = '';
+    const def = document.createElement('option');
+    def.value = '';
+    def.disabled = true;
+    def.selected = true;
+    def.textContent = 'Seleccione un establecimiento';
+    selectEl.appendChild(def);
+    opciones.forEach((nombre) => {
+      const op = document.createElement('option');
+      op.value = nombre;
+      op.textContent = nombre;
+      if (preselect && preselect === nombre) op.selected = true;
+      selectEl.appendChild(op);
+    });
+    if (!preselect && opciones.includes(current)) {
+      selectEl.value = current;
+    }
+  };
+
+  const initParDependiente = (comunaEl, estEl, preselected) => {
+    if (!(comunaEl && estEl)) return;
+    let comunaIni = preselected ? buscarComunaPorEstablecimiento(preselected) : '';
+    if (comunaIni) {
+      comunaEl.value = comunaIni;
+      poblarEstablecimientosEn(estEl, comunaIni, preselected);
+    }
+    comunaEl.addEventListener('change', () => {
+      poblarEstablecimientosEn(estEl, comunaEl.value, '');
+    });
+  };
+
+  // Par 1: Establecimiento APS
+  initParDependiente(
+    document.querySelector('[data-est-comuna]'),
+    document.querySelector('[data-est-select]'),
+    EST_PRE,
+  );
+  // Par 2: Derivación
+  initParDependiente(
+    document.querySelector('[data-der-comuna]'),
+    document.querySelector('[data-der-select]'),
+    DER_PRE,
+  );
+
+
+  // INDICADOR
 });
+

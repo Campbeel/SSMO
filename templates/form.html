@@ -20,32 +20,51 @@
   {% endif %}
 
   <form method="post" class="formulario">
-    <section>
-      <h3>Datos personales</h3>
+    <!-- Bloque superior: 1) Servicio, 2) Comuna , 3) Establecimiento , 4) Especialidad -->
+    <section class="admission-box">
+      <h3>Admisión</h3>
       <div class="field-grid">
         <label>
-          <span>Servicio de salud *</span>
-          <input type="text" name="servicio_salud" value="{{ campos.servicio_salud }}" required />
+          <span>Servicio de salud </span>
+          <input type="text" name="servicio_salud" value="{{ campos.servicio_salud }}" required readonly aria-readonly="true" />
         </label>
-        <label>
-          <span>Establecimiento</span>
-          <input type="text" name="establecimiento" value="{{ campos.establecimiento }}" />
+        <label data-compact>
+          <span>Establecimiento </span>
+          <select name="establecimiento" data-est-select>
+            <option value="" disabled {% if not campos.establecimiento %}selected{% endif %}>Seleccione un establecimiento</option>
+          </select>
         </label>
         <label>
           <span>Especialidad</span>
-          <input type="text" name="especialidad" value="{{ campos.especialidad }}" />
+          <select name="especialidad">
+            <option value="" disabled {% if not campos.especialidad %}selected{% endif %}>Seleccione especialidad</option>
+            {% for esp in especialidades_catalogo %}
+              <option value="{{ esp }}" {% if campos.especialidad == esp %}selected{% endif %}>{{ esp }}</option>
+            {% endfor %}
+          </select>
         </label>
         <label>
           <span>Unidad</span>
           <input type="text" name="unidad" value="{{ campos.unidad }}" />
         </label>
+      </div>
+      <script>
+        window.EST_CATALOGO = {{ establecimientos_catalogo | tojson }};
+        window.EST_PRESELECCIONADO = {{ (campos.establecimiento or '') | tojson }};
+      </script>
+    </section>
+
+    <!-- Datos personales -->
+    <section>
+      <h3>Datos del (de la) Paciente</h3>
+      <div class="field-grid">
         <label>
           <span>Nombre completo *</span>
           <input type="text" name="nombre" value="{{ campos.nombre }}" required />
         </label>
         <label>
           <span>Historia clínica</span>
-          <input type="text" name="historia_clinica" value="{{ campos.historia_clinica }}" inputmode="numeric" pattern="[0-9]*" data-only-digits />
+          <input type="text" name="historia_clinica" value="{{ campos.historia_clinica }}" placeholder="" />
         </label>
         <label>
           <span>RUT paciente *</span>
@@ -54,7 +73,7 @@
         </label>
         <label>
           <span>RUT apoderado/padre (opcional)</span>
-          <input type="text" name="rut_padre" value="{{ campos.rut_padre }}" placeholder="22.222.222-2" data-rut />
+          <input type="text" name="rut_padre" value="{{ campos.rut_padre }}" placeholder="" data-rut />
           <small class="field-note">Si el RUT termina en K, ingrese 0.</small>
         </label>
         <label>
@@ -93,7 +112,7 @@
         </label>
         <label>
           <span>Teléfono 2</span>
-          <input type="tel" name="telefono2" value="{{ campos.telefono2 }}" inputmode="tel" pattern="^\+?\d+$" data-phone placeholder="+56912345678" />
+          <input type="tel" name="telefono2" value="{{ campos.telefono2 }}" inputmode="tel" pattern="^\+?\d+$" data-phone placeholder="" />
         </label>
         <label>
           <span>Correo electrónico 1 *</span>
@@ -109,10 +128,24 @@
     <section>
       <h3>Datos médicos</h3>
       <div class="field-grid">
-        <label>
-          <span>Establecimiento de derivación</span>
-          <input type="text" name="establecimiento_derivacion" value="{{ campos.establecimiento_derivacion }}" />
+        <label data-compact>
+          <span>Comuna destino</span>
+          <select name="derivacion_comuna" data-der-comuna>
+            <option value="" disabled selected>Seleccione una comuna</option>
+            {% for comuna in establecimientos_catalogo.keys() %}
+              <option value="{{ comuna }}">{{ comuna }}</option>
+            {% endfor %}
+          </select>
         </label>
+        <label data-compact>
+          <span>Establecimiento destino </span>
+          <select name="establecimiento_derivacion" data-der-select>
+            <option value="" disabled {% if not campos.establecimiento_derivacion %}selected{% endif %}>Seleccione un establecimiento</option>
+          </select>
+        </label>
+        <script>
+          window.DER_PRESELECCIONADO = {{ (campos.establecimiento_derivacion or '') | tojson }};
+        </script>
         <label>
           <span>Grupo poblacional específico</span>
           <select name="grupo_poblacional">
@@ -131,7 +164,7 @@
           </select>
         </label>
         <label class="wide" data-consulta-otro {% if campos.tipo_consulta != 'Otro' %}hidden{% endif %}>
-          <span>Detalle del tipo de consulta</span>
+          <span>Detalle del tipo de consulta (si seleccionó otro) </span>
           <input type="text" name="tipo_consulta_otro" value="{{ campos.tipo_consulta_detalle or '' }}" placeholder="Especifique el motivo" />
         </label>
         <label>
@@ -146,14 +179,7 @@
           <span>Hipótesis diagnóstica</span>
           <textarea name="hipotesis_diagnostico" rows="3">{{ campos.hipotesis_diagnostico }}</textarea>
         </label>
-        <label class="wide">
-          <span>¿Caso GES?</span>
-          <select name="es_ges">
-            <option value="" disabled {% if not campos.es_ges %}selected{% endif %}>Seleccione</option>
-            <option value="Sí" {% if campos.es_ges == 'Sí' %}selected{% endif %}>Sí</option>
-            <option value="No" {% if campos.es_ges == 'No' %}selected{% endif %}>No</option>
-          </select>
-        </label>
+        <!-- Eliminado '¿Caso GES?'; se maneja por selección de patología -->
         <label class="wide">
           <span>Fundamento diagnóstico</span>
           <textarea name="fundamento_diagnostico" rows="3">{{ campos.fundamento_diagnostico }}</textarea>
@@ -166,29 +192,33 @@
     </section>
 
     <section>
+          <section>
       <h3>Patologías GES</h3>
-      <p class="section-description">Seleccione todas las patologías que apliquen.</p>
-      <div class="checkbox-grid">
-        {% set seleccionadas = campos.patologias_ges.split(';') if campos.patologias_ges else [] %}
-        {% for patologia in patologias_catalogo %}
-          <label class="checkbox-item">
-            <input type="checkbox" name="patologias_ges" value="{{ patologia }}" {% if patologia in seleccionadas %}checked{% endif %} />
-            <span>{{ patologia }}</span>
-          </label>
-        {% endfor %}
+      <p class="section-description">Seleccione la patología si corresponde; deje sin selección si no aplica.</p>
+      {% set seleccionada = (campos.patologias_ges.split(';')[0]) if campos.patologias_ges else '' %}
+      <div class="field-grid">
+        <label class="wide">
+          <span>Patología GES</span>
+          <select name="patologias_ges">
+            <option value="" {% if not seleccionada %}selected{% endif %}>Sin selección</option>
+            {% for patologia in patologias_catalogo %}
+              <option value="{{ patologia }}" {% if seleccionada == patologia %}selected{% endif %}>{{ patologia }}</option>
+            {% endfor %}
+          </select>
+        </label>
       </div>
-    </section>
+    </section> 
 
     <section>
-      <h3>Datos del (la) Profesional </h3>
+      <h3>Profesional responsable</h3>
       <div class="field-grid">
         <label>
-          <span>Nombre médico</span>
+          <span>Nombre</span>
           <input type="text" name="nombre_medico" value="{{ campos.nombre_medico }}" />
         </label>
         <label>
-          <span>RUT médico</span>
-          <input type="text" name="rut_medico" value="{{ campos.rut_medico }}" placeholder="33.333.333-3" data-rut />
+          <span>RUT </span>
+          <input type="text" name="rut_medico" value="{{ campos.rut_medico }}" placeholder="1.111.111-1" data-rut />
           <small class="field-note">Si el RUT termina en K, ingrese 0.</small>
         </label>
       </div>
