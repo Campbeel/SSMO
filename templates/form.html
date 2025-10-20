@@ -29,6 +29,15 @@
           <input type="text" name="servicio_salud" value="{{ campos.servicio_salud }}" required readonly aria-readonly="true" />
         </label>
         <label data-compact>
+          <span>Comuna</span>
+          <select name="admision_comuna" data-est-comuna>
+            <option value="" disabled selected>Seleccione una comuna</option>
+            {% for comuna in establecimientos_catalogo.keys() %}
+              <option value="{{ comuna }}">{{ comuna }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label data-compact>
           <span>Establecimiento </span>
           <select name="establecimiento" data-est-select>
             <option value="" disabled {% if not campos.establecimiento %}selected{% endif %}>Seleccione un establecimiento</option>

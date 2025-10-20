@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import re
 
-from flask import Flask, flash, redirect, render_template, request, url_for
+from flask import Flask, flash, redirect, render_template, request, url_for, jsonify, abort
 from flask_sqlalchemy import SQLAlchemy
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -91,6 +91,41 @@ class MedicalForm(db.Model):
             f"- \n"
         )
 
+    def to_dict(self) -> Dict[str, Optional[str]]:
+        return {
+            "id": self.id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "servicio_salud": self.servicio_salud,
+            "establecimiento": self.establecimiento,
+            "especialidad": self.especialidad,
+            "unidad": self.unidad,
+            "nombre": self.nombre,
+            "historia_clinica": self.historia_clinica,
+            "rut": self.rut,
+            "rut_padre": self.rut_padre,
+            "sexo": self.sexo,
+            "fecha_nacimiento": self.fecha_nacimiento,
+            "edad": self.edad,
+            "domicilio": self.domicilio,
+            "comuna": self.comuna,
+            "telefono1": self.telefono1,
+            "telefono2": self.telefono2,
+            "correo1": self.correo1,
+            "correo2": self.correo2,
+            "establecimiento_derivacion": self.establecimiento_derivacion,
+            "grupo_poblacional": self.grupo_poblacional,
+            "tipo_consulta": self.tipo_consulta,
+            "tiene_terapias": self.tiene_terapias,
+            "terapias_otro": self.terapias_otro,
+            "hipotesis_diagnostico": self.hipotesis_diagnostico,
+            "es_ges": self.es_ges,
+            "fundamento_diagnostico": self.fundamento_diagnostico,
+            "examenes_realizados": self.examenes_realizados,
+            "nombre_medico": self.nombre_medico,
+            "rut_medico": self.rut_medico,
+            "patologias_ges": self.patologias_ges_lista(),
+        }
+
 
 FORM_FIELDS: List[str] = [
     "servicio_salud",
@@ -150,6 +185,56 @@ TIPOS_CONSULTA: List[str] = [
     "Seguimiento",
     "Otro",
 ]
+
+# -------------------- API para Postman (rama main) --------------------
+@app.route("/api/forms", methods=["GET"])
+def api_forms_list():
+    forms = MedicalForm.query.order_by(MedicalForm.id.desc()).all()
+    return jsonify([f.to_dict() for f in forms])
+
+
+@app.route("/api/forms/<int:form_id>", methods=["GET"])
+def api_forms_detail(form_id: int):
+    form = MedicalForm.query.get(form_id)
+    if not form:
+        abort(404)
+    return jsonify(form.to_dict())
+
+
+@app.cli.command("seed-db")
+def seed_db():
+    """Crea la base y agrega un registro de ejemplo alineado al formulario actual."""
+    db.drop_all()
+    db.create_all()
+
+    ejemplo = MedicalForm(
+        servicio_salud="Metropolitano Oriente",
+        establecimiento="CESFAM Ejemplo",
+        especialidad="Psicología",
+        unidad="Unidad A",
+        nombre="Paciente Demo",
+        historia_clinica="12345",
+        rut="12.345.678-9",
+        sexo="Femenino",
+        fecha_nacimiento="1990-05-15",
+        edad="35",
+        domicilio="Av. Siempre Viva 742",
+        comuna="Ñuñoa",
+        telefono1="987654321",
+        correo1="paciente@example.com",
+        establecimiento_derivacion="COSAM SSMO",
+        tipo_consulta="Confirmación diagnóstica",
+        hipotesis_diagnostico="Ansiedad",
+        es_ges="No",
+        fundamento_diagnostico="Clínica compatible",
+        examenes_realizados="Sin exámenes",
+        nombre_medico="Dra. Prueba",
+        rut_medico="20.123.456-7",
+        patologias_ges="Depresión; Esquizofrenia",
+    )
+    db.session.add(ejemplo)
+    db.session.commit()
+    print("Base creada y sembrada (main): 1 formulario de ejemplo.")
 def _limpiar_rut(rut: str) -> str:
     return "".join(ch for ch in rut if ch.isdigit() or ch in {"K", "k"})
 

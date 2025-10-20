@@ -48,13 +48,3 @@ La base de datos `ssmo.db` se crea automáticamente la primera vez que se ejecut
 
 Para ejecutar las pruebas manuales, puede completar el formulario y verificar que la plantilla generada contenga los datos ingresados y que el registro se encuentre disponible en el listado de formularios guardados.
 
-## Esquema de la base (main)
-
-- Diagrama Mermaid: `docs/erd_main.mmd`
-  - Puede previsualizarse en VS Code con alguna extensión de Mermaid o renderizarse con Mermaid CLI:
-    - `npm i -g @mermaid-js/mermaid-cli`
-    - `mmdc -i docs/erd_main.mmd -o docs/erd_main.png`
-
-- Exportar esquema SQL actual de `ssmo.db`:
-  - `python scripts/dump_schema.py`
-  - Resultado: `docs/schema_main.sql`
