@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+
+{% block title %}Devolver ficha - COSAM{% endblock %}
+
+{% block content %}
+  <h2>Devolver ficha al centro</h2>
+  <p>Paciente: <strong>{{ form.nombre }}</strong> — RUT: {{ form.rut or '-' }}</p>
+  <p>Centro de origen: <strong>{{ form.establecimiento or '-' }}</strong></p>
+  <form method="post" class="formulario">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <div class="field-grid">
+      <label class="wide">
+        <span>Motivo de devolución (opcional)</span>
+        <textarea name="reason" rows="3" maxlength="600"></textarea>
+      </label>
+    </div>
+    <div class="actions">
+      <button class="primary" type="submit">Confirmar devolución</button>
+      <a class="secondary" href="{{ url_for('cosam_return_prefill', case_id=caso.id) }}">Autollenar formulario para devolver</a>
+      <a class="secondary" href="{{ url_for('cosam_pacientes') }}">Cancelar</a>
+    </div>
+  </form>
+{% endblock %}

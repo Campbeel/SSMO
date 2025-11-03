@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+
+{% block title %}Agendar hora - COSAM{% endblock %}
+
+{% block content %}
+  <h2>Agendar hora</h2>
+  <p>Paciente: <strong>{{ form.nombre }}</strong> — RUT: {{ form.rut or '-' }}</p>
+  <form method="post" class="formulario">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <div class="field-grid">
+      <label>
+        <span>Fecha</span>
+        <input type="date" name="date" required />
+      </label>
+      <label>
+        <span>Hora</span>
+        <input type="time" name="time" required />
+      </label>
+      <label class="wide">
+        <span>Lugar</span>
+        <input type="text" name="place" />
+      </label>
+      <label class="wide">
+        <span>Notas</span>
+        <textarea name="notes" rows="3"></textarea>
+      </label>
+    </div>
+    <div class="actions">
+      <button class="primary" type="submit">Guardar</button>
+      <a class="secondary" href="{{ url_for('cosam_pacientes') }}">Volver</a>
+    </div>
+  </form>
+{% endblock %}
+

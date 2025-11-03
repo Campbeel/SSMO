@@ -19,7 +19,7 @@
     </div>
   {% endif %}
 
-  <form method="post" class="formulario">
+  <form method="post" class="formulario">`n    <input type="hidden" name="csrf_token" value="{{ session.csrf_token or csrf_token }}" />
     <!-- Bloque superior: 1) Servicio, 2) Comuna , 3) Establecimiento , 4) Especialidad -->
     <section class="admission-box">
       <h3>Admisión</h3>
@@ -165,7 +165,7 @@
         </label>
         <label>
           <span>Tipo de consulta</span>
-          <select name="tipo_consulta" data-consulta-selector>
+          <select name="tipo_consulta" data-consulta-selector required>
             <option value="" disabled {% if not campos.tipo_consulta %}selected{% endif %}>Seleccione tipo de consulta</option>
             {% for opcion in tipos_consulta_catalogo %}
               <option value="{{ opcion }}" {% if campos.tipo_consulta == opcion %}selected{% endif %}>{{ opcion }}</option>
@@ -174,7 +174,7 @@
         </label>
         <label class="wide" data-consulta-otro {% if campos.tipo_consulta != 'Otro' %}hidden{% endif %}>
           <span>Detalle del tipo de consulta (si seleccionó otro) </span>
-          <input type="text" name="tipo_consulta_otro" value="{{ campos.tipo_consulta_detalle or '' }}" placeholder="Especifique el motivo" />
+          <input type="text" name="tipo_consulta_otro" value="{{ campos.tipo_consulta_detalle or '' }}" placeholder="Especifique el motivo" {% if campos.tipo_consulta != 'Otro' %}disabled{% endif %} />
         </label>
         <label>
           <span>¿Requiere terapias específicas?</span>
@@ -186,17 +186,29 @@
         </label>
         <label class="wide">
           <span>Hipótesis diagnóstica</span>
-          <textarea name="hipotesis_diagnostico" rows="3">{{ campos.hipotesis_diagnostico }}</textarea>
+          <textarea name="hipotesis_diagnostico" rows="3" maxlength="1000">{{ campos.hipotesis_diagnostico }}</textarea>
         </label>
         <!-- Eliminado '¿Caso GES?'; se maneja por selección de patología -->
         <label class="wide">
           <span>Fundamento diagnóstico</span>
-          <textarea name="fundamento_diagnostico" rows="3">{{ campos.fundamento_diagnostico }}</textarea>
+          <textarea name="fundamento_diagnostico" rows="3" maxlength="1000">{{ campos.fundamento_diagnostico }}</textarea>
         </label>
         <label class="wide">
           <span>Exámenes realizados</span>
-          <textarea name="examenes_realizados" rows="3">{{ campos.examenes_realizados }}</textarea>
+          <textarea name="examenes_realizados" rows="3" maxlength="1000">{{ campos.examenes_realizados }}</textarea>
         </label>
+        {% set u = g.current_user or current_user %}
+        {% if u and u.role == 'centro' %}
+        <label>
+          <span>Prioridad sugerida</span>
+          <select name="prioridad_sugerida">
+            <option value="">Sin sugerencia</option>
+            <option value="bajo">bajo</option>
+            <option value="medio">medio</option>
+            <option value="alto">alto</option>
+          </select>
+        </label>
+        {% endif %}
       </div>
     </section>
 
@@ -234,8 +246,13 @@
     </section>
 
     <div class="actions">
-      <button type="submit" class="primary">Guardar formulario</button>
-      <a class="secondary" href="{{ url_for('listar_formularios') }}">Ver registros existentes</a>
+      {% set u = g.current_user or current_user %}
+      {% if u and u.role == 'centro' %}
+        <button type="submit" class="primary">Enviar formulario SIC</button>
+      {% else %}
+        <button type="submit" class="primary">Guardar formulario</button>
+        <a class="secondary" href="{{ url_for('listar_formularios') }}">Formularios guardados</a>
+      {% endif %}
     </div>
   </form>
 {% endblock %}

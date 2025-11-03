@@ -425,3 +425,10 @@ a.secondary:hover {
 /* Admission box styling */
 .admission-box { border: 2px solid var(--border); border-radius: 12px; background: white; padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
 .admission-box h3 { margin-top: 0; margin-bottom: 1rem; }
+/* Nav buttons */
+.header-nav .btn{display:inline-block;margin:0 6px;padding:8px 14px;border-radius:18px;background:#e8f0ff;color:#1a56db;text-decoration:none;border:1px solid #c9dafc}
+.header-nav .btn:hover{background:#dce8ff}
+.header-nav .btn.btn-logout{background:#ffe8e8;color:#b42323;border-color:#f5c2c2}
+.header-nav .btn.btn-logout:hover{background:#ffdede}
+.header-nav .user-badge{opacity:.75;margin:0 8px}
+.entries-table .danger{background:#ffe8e8;color:#b42323;border:1px solid #f5c2c2;padding:6px 10px;border-radius:6px}

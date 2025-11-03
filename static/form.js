@@ -211,9 +211,10 @@
     const esOtro = consultaSelector?.value === 'Otro';
     if (consultaOtro) {
       consultaOtro.hidden = !esOtro;
-      if (!esOtro) {
-        const campo = consultaOtro.querySelector('input');
-        if (campo) campo.value = '';
+      const campo = consultaOtro.querySelector('input');
+      if (campo) {
+        campo.disabled = !esOtro;
+        if (!esOtro) campo.value = '';
       }
     }
   };

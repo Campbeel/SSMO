@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+
+{% block title %}Aceptar ficha - COSAM{% endblock %}
+
+{% block content %}
+  <h2>Aceptar ficha</h2>
+  <article class="summary">
+    <section class="summary-section">
+      <dl>
+        <div><dt>Paciente</dt><dd>{{ form.nombre }}</dd></div>
+        <div><dt>RUT</dt><dd>{{ form.rut or '-' }}</dd></div>
+        <div><dt>Especialidad</dt><dd>{{ form.especialidad or '-' }}</dd></div>
+        <div><dt>Establecimiento origen</dt><dd>{{ form.establecimiento or '-' }}</dd></div>
+      </dl>
+    </section>
+  </article>
+
+  <form method="post" class="formulario">
+    <input type="hidden" name="csrf_token" value="{{ session.csrf_token or csrf_token }}" />
+    <div class="field-grid">
+      <label>
+        <span>Prioridad</span>
+        <select name="prioridad" required>
+          <option value="bajo" {% if caso.prioridad=='bajo' %}selected{% endif %}>bajo</option>
+          <option value="medio" {% if caso.prioridad=='medio' %}selected{% endif %}>medio</option>
+          <option value="alto" {% if caso.prioridad=='alto' %}selected{% endif %}>alto</option>
+        </select>
+      </label>
+    </div>
+    <div class="actions">
+      <button type="submit" class="primary">Aceptar</button>
+      <a class="secondary" href="{{ url_for('cosam_inbox') }}">Cancelar</a>
+    </div>
+  </form>
+{% endblock %}
+

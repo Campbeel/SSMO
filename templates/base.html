@@ -8,6 +8,12 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
   </head>
   <body>
+    {% if DEV_SHOW_USER and current_user %}
+      <div style="position:fixed;top:0;left:0;right:0;background:#222;color:#fff;padding:6px 12px;font-size:12px;z-index:9999;opacity:.9;">
+        DEV: usuario={{ current_user.username }} | rol={{ current_user.role }}
+      </div>
+      <div style="height:28px"></div>
+    {% endif %}
     <header class="app-header">
       <div class="container header-inner">
         <div class="brand">
@@ -15,8 +21,31 @@
           <h1>Solicitud de Interconsulta o Derivación</h1>
         </div>
         <nav class="header-nav">
-          <a href="{{ url_for('formulario') }}">Nuevo formulario</a>
-          <a href="{{ url_for('listar_formularios') }}">Formularios guardados</a>
+          {% if g.current_user or current_user %}
+            {% set u = g.current_user or current_user %}
+            {% if u.role == 'centro' %}
+              <a class="btn" href="{{ url_for('formulario') }}">Nuevo formulario</a>
+              <a class="btn" href="{{ url_for('centro_inbox') }}">Centro bandeja</a>
+            {% elif u.role == 'cosam' %}
+              <a class="btn" href="{{ url_for('formulario') }}">Nuevo formulario</a>
+              <a class="btn" href="{{ url_for('cosam_inbox') }}">COSAM bandeja</a>
+              <a class="btn" href="{{ url_for('cosam_pacientes') }}">Pacientes</a>
+              <a class="btn" href="{{ url_for('cosam_agenda') }}">Agenda</a>
+            {% elif u.role == 'admin' %}
+              <a class="btn" href="{{ url_for('admin_users') }}">Admin usuarios</a>
+              <a class="btn" href="{{ url_for('admin_ges') }}">GES</a>
+            {% endif %}
+            {% if u.role == 'cosam' %}
+              <a class="btn" href="{{ url_for('listar_formularios') }}">Formularios guardados</a>
+            {% endif %}
+            <span class="user-badge">{{ u.username }} ({{ u.role }})</span>
+            <form action="{{ url_for('logout') }}" method="post" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{ session.csrf_token or csrf_token }}" />
+              <button type="submit" class="btn btn-logout">Salir</button>
+            </form>
+          {% else %}
+            <a class="btn" href="{{ url_for('login') }}">Ingresar</a>
+          {% endif %}
         </nav>
       </div>
     </header>

@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+
+{% block title %}Agenda - COSAM{% endblock %}
+
+{% block content %}
+  <section class="entries">
+    <header class="entries-header">
+      <div>
+        <h2>Agenda (próximos 30 días)</h2>
+        <p>Citas agendadas.</p>
+      </div>
+    </header>
+    {% if items %}
+      <table class="entries-table">
+        <thead>
+          <tr>
+            <th>Fecha/Hora</th>
+            <th>Paciente</th>
+            <th>RUT</th>
+            <th>Lugar</th>
+            <th>Notas</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a, c, f in items %}
+            <tr>
+              <td>{{ a.scheduled_at.strftime('%d/%m/%Y %H:%M') }}</td>
+              <td>{{ f.nombre }}</td>
+              <td>{{ f.rut or '-' }}</td>
+              <td>{{ a.place or '-' }}</td>
+              <td>{{ a.notes or '-' }}</td>
+              <td>
+                <a class="secondary" href="{{ url_for('cosam_reschedule', case_id=c.id) }}">Reagendar</a>
+                <a class="secondary" href="{{ url_for('ver_formulario', form_id=f.id) }}">Ver ficha</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty-state">Sin citas en el período.</p>
+    {% endif %}
+  </section>
+{% endblock %}
+

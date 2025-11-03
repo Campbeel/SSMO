@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+
+{% block title %}GES - Administración{% endblock %}
+
+{% block content %}
+  <h2>GES - Catálogo</h2>
+  <form method="post" class="formulario" style="margin-bottom:1rem;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <input type="hidden" name="action" value="add" />
+    <div class="field-grid">
+      <label class="wide">
+        <span>Nueva patología GES</span>
+        <input type="text" name="name" required />
+      </label>
+    </div>
+    <div class="actions">
+      <button class="primary" type="submit">Agregar</button>
+      <a class="secondary" href="{{ url_for('admin_users') }}">Volver</a>
+    </div>
+  </form>
+
+  <table class="entries-table">
+    <thead>
+      <tr><th>Nombre</th><th>Activo</th><th>Acciones</th></tr>
+    </thead>
+    <tbody>
+      {% for it in items %}
+        <tr>
+          <td>{{ it.name }}</td>
+          <td>{{ 'sí' if it.active else 'no' }}</td>
+          <td>
+            <form method="post" action="{{ url_for('admin_ges') }}" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+              <input type="hidden" name="id" value="{{ it.id }}" />
+              <input type="hidden" name="action" value="toggle" />
+              <button class="secondary" type="submit">{{ 'Desactivar' if it.active else 'Activar' }}</button>
+            </form>
+            <form method="post" action="{{ url_for('admin_ges') }}" style="display:inline" onsubmit="return confirm('¿Eliminar {{ it.name }}?');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+              <input type="hidden" name="id" value="{{ it.id }}" />
+              <input type="hidden" name="action" value="delete" />
+              <button class="danger" type="submit">Eliminar</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}
+

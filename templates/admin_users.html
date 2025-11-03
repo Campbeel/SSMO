@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+
+{% block title %}Admin usuarios - SSMO{% endblock %}
+
+{% block content %}
+  <h2>Usuarios</h2>
+  <form method="post" class="formulario">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <div class="field-grid">
+      <label>
+        <span>Correo (usuario)</span>
+        <input type="email" name="username" required />
+      </label>
+      <label>
+        <span>Rol</span>
+        <select name="role" required>
+          <option value="centro">centro</option>
+          <option value="cosam">cosam</option>
+          <option value="admin">admin</option>
+        </select>
+      </label>
+      <label>
+        <span>Contraseña</span>
+        <input type="password" name="password" minlength="8" required />
+      </label>
+    </div>
+    <div class="actions">
+      <button class="primary" type="submit">Crear</button>
+    </div>
+  </form>
+
+  <h3>Lista</h3>
+  <table class="entries-table">
+    <thead>
+      <tr>
+        <th>Usuario</th>
+        <th>Rol</th>
+        <th>Activo</th>
+        <th>Creado</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+        <tr>
+          <td>{{ u.username }}</td>
+          <td>{{ u.role }}</td>
+          <td>{{ 'sí' if u.is_active else 'no' }}</td>
+          <td>{{ u.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
+          <td>
+            <a class="secondary" href="{{ url_for('admin_user_edit', user_id=u.id) }}">Editar</a>
+            {% if u.id != (current_user.id if current_user else -1) %}
+              <form action="{{ url_for('admin_user_delete', user_id=u.id) }}" method="post" style="display:inline" onsubmit="return confirm('¿Eliminar usuario {{ u.username }}?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                <button type="submit" class="danger">Eliminar</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="actions" style="margin-top:1rem;">
+    <a class="secondary" href="{{ url_for('admin_ges') }}">Gestionar GES</a>
+  </div>
+{% endblock %}
+
