@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+
+{% block title %}Ingresar - SSMO{% endblock %}
+
+{% block content %}
+  <h2>Ingreso</h2>
+  <form method="post" class="formulario">
+    <input type="hidden" name="csrf_token" value="{{ session.csrf_token or csrf_token }}" />
+    <div class="field-grid">
+      <label>
+        <span>Usuario</span>
+        <input type="text" name="username" autocomplete="username" required />
+      </label>
+      <label>
+        <span>Contraseña</span>
+        <input type="password" name="password" autocomplete="current-password" required />
+      </label>
+    </div>
+    <div class="actions">
+      <button type="submit" class="primary">Ingresar</button>
+    </div>
+  </form>
+{% endblock %}
+

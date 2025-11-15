@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+
+{% block title %}Editar usuario - SSMO{% endblock %}
+
+{% block content %}
+  <h2>Editar usuario</h2>
+  <form method="post" class="formulario">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <div class="field-grid">
+      <label>
+        <span>Correo (usuario)</span>
+        <input type="email" name="username" value="{{ user.username }}" required />
+      </label>
+      <label>
+        <span>Rol</span>
+        <select name="role" required>
+          <option value="centro" {% if user.role=='centro' %}selected{% endif %}>centro</option>
+          <option value="cosam" {% if user.role=='cosam' %}selected{% endif %}>cosam</option>
+          <option value="admin" {% if user.role=='admin' %}selected{% endif %}>admin</option>
+        </select>
+      </label>
+      <label>
+        <span>Activo</span>
+        <input type="checkbox" name="is_active" {% if user.is_active %}checked{% endif %} />
+      </label>
+      <label>
+        <span>Nueva contraseña (opcional)</span>
+        <input type="password" name="password" minlength="8" />
+      </label>
+    </div>
+    <div class="actions">
+      <button class="primary" type="submit">Guardar</button>
+      <a class="secondary" href="{{ url_for('admin_users') }}">Volver</a>
+    </div>
+  </form>
+{% endblock %}
+

@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+
+{% block title %}Pacientes - COSAM{% endblock %}
+
+{% block content %}
+  <section class="entries">
+    <header class="entries-header">
+      <div>
+        <h2>Pacientes activos</h2>
+        <p>Ordenados por prioridad.</p>
+      </div>
+    </header>
+    {% if casos %}
+      <table class="entries-table">
+        <thead>
+          <tr>
+            <th>Prioridad</th>
+            <th>Fecha</th>
+            <th>Paciente</th>
+            <th>RUT</th>
+            <th>Especialidad</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c, f, ap in casos %}
+            <tr>
+              <td>{{ c.prioridad or '-' }}</td>
+              <td>{{ f.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
+              <td>{{ f.nombre }}</td>
+              <td>{{ f.rut or '-' }}</td>
+              <td>{{ f.especialidad or '-' }}</td>
+              <td>
+                <a class="secondary" href="{{ url_for('ver_formulario', form_id=f.id) }}">Ver</a>
+                {% if ap %}
+                  <span class="user-badge">Agendado: {{ ap.scheduled_at.strftime('%d/%m/%Y %H:%M') }}</span>
+                  <a class="secondary" href="{{ url_for('cosam_reschedule', case_id=c.id) }}">Reagendar</a>
+                {% else %}
+                  <a class="primary" href="{{ url_for('cosam_schedule', case_id=c.id) }}">Agendar</a>
+                {% endif %}
+                <a class="secondary" href="{{ url_for('formulario', prefill_from=f.id) }}">Reenviar</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty-state">Sin pacientes activos.</p>
+    {% endif %}
+  </section>
+{% endblock %}

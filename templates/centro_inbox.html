@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+
+{% block title %}Centro - Bandeja{% endblock %}
+
+{% block content %}
+  <section class="entries">
+    <header class="entries-header">
+      <div>
+        <h2>Fichas recibidas del COSAM</h2>
+        <p>Fichas devueltas al centro.</p>
+      </div>
+      <a class="primary" href="{{ url_for('formulario') }}">Nueva ficha</a>
+    </header>
+    {% if recibidos %}
+      <table class="entries-table">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Paciente</th>
+            <th>RUT</th>
+            <th>Estado</th>
+            <th>Prioridad</th>
+            <th>Motivo</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c, f, ev in recibidos %}
+            <tr>
+              <td>{{ f.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
+              <td>{{ f.nombre }}</td>
+              <td>{{ f.rut or '-' }}</td>
+              <td>{{ c.status }}</td>
+              <td>{{ c.prioridad or '-' }}</td>
+              <td>{{ ev.reason if ev and ev.reason else '-' }}</td>
+              <td>
+                <a class="secondary" href="{{ url_for('ver_formulario', form_id=f.id) }}">Ver</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty-state">No hay fichas recibidas.</p>
+    {% endif %}
+  </section>
+
+  <section class="entries">
+    <header class="entries-header">
+      <div>
+        <h2>Mis fichas enviadas</h2>
+        <p>Estado de las fichas enviadas al COSAM.</p>
+      </div>
+    </header>
+    {% if enviados %}
+      <table class="entries-table">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Paciente</th>
+            <th>RUT</th>
+            <th>Estado</th>
+            <th>Prioridad</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c, f in enviados %}
+            <tr>
+              <td>{{ f.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
+              <td>{{ f.nombre }}</td>
+              <td>{{ f.rut or '-' }}</td>
+              <td>{{ c.status }}</td>
+              <td>{{ c.prioridad or '-' }}</td>
+              <td>
+                <a class="secondary" href="{{ url_for('ver_formulario', form_id=f.id) }}">Ver</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty-state">Aún no ha enviado fichas.</p>
+    {% endif %}
+  </section>
+{% endblock %}

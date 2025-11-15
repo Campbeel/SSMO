@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+
+{% block title %}COSAM - Bandeja{% endblock %}
+
+{% block content %}
+  <section class="entries">
+    <header class="entries-header">
+      <div>
+        <h2>Entrantes</h2>
+        <p>Fichas enviadas por centros. Seleccione prioridad y acepte.</p>
+      </div>
+    </header>
+    {% if casos %}
+      <table class="entries-table">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Paciente</th>
+            <th>RUT</th>
+            <th>Especialidad</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c, f in casos %}
+            <tr>
+              <td>{{ f.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
+              <td>{{ f.nombre }}</td>
+              <td>{{ f.rut or '-' }}</td>
+              <td>{{ f.especialidad or '-' }}</td>
+              <td>
+                <form method="post" action="{{ url_for('cosam_accept', case_id=c.id) }}" style="display:inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                  <select name="prioridad">
+                    <option value="bajo">bajo</option>
+                    <option value="medio" selected>medio</option>
+                    <option value="alto">alto</option>
+                  </select>
+                  <button class="primary" type="submit">Aceptar</button>
+                </form>
+                <a class="secondary" href="{{ url_for('ver_formulario', form_id=f.id) }}">Ver</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty-state">Sin fichas nuevas.</p>
+    {% endif %}
+  </section>
+{% endblock %}
