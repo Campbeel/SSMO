@@ -23,6 +23,12 @@
         <span>Activo</span>
         <input type="checkbox" name="is_active" {% if user.is_active %}checked{% endif %} />
       </label>
+      {% if is_master %}
+      <label>
+        <span>Admin maestro</span>
+        <input type="checkbox" name="is_master_admin" {% if user.is_master_admin %}checked{% endif %} />
+      </label>
+      {% endif %}
       <label>
         <span>Nueva contraseña (opcional)</span>
         <input type="password" name="password" minlength="8" />

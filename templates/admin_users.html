@@ -23,6 +23,12 @@
         <span>Contraseña</span>
         <input type="password" name="password" minlength="8" required />
       </label>
+      {% if is_master %}
+      <label>
+        <span>Admin maestro</span>
+        <input type="checkbox" name="is_master_admin" />
+      </label>
+      {% endif %}
     </div>
     <div class="actions">
       <button class="primary" type="submit">Crear</button>
@@ -35,6 +41,7 @@
       <tr>
         <th>Usuario</th>
         <th>Rol</th>
+        <th>Master</th>
         <th>Activo</th>
         <th>Creado</th>
         <th>Acciones</th>
@@ -45,11 +52,12 @@
         <tr>
           <td>{{ u.username }}</td>
           <td>{{ u.role }}</td>
+          <td>{{ 'sí' if u.is_master_admin else 'no' }}</td>
           <td>{{ 'sí' if u.is_active else 'no' }}</td>
           <td>{{ u.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
           <td>
             <a class="secondary" href="{{ url_for('admin_user_edit', user_id=u.id) }}">Editar</a>
-            {% if u.id != (current_user.id if current_user else -1) %}
+            {% if u.id != (current_user.id if current_user else -1) and (is_master or not u.is_master_admin) %}
               <form action="{{ url_for('admin_user_delete', user_id=u.id) }}" method="post" style="display:inline" onsubmit="return confirm('¿Eliminar usuario {{ u.username }}?');">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
                 <button type="submit" class="danger">Eliminar</button>

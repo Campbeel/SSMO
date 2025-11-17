@@ -39,6 +39,9 @@
               <a class="btn" href="{{ url_for('listar_formularios') }}">Formularios guardados</a>
             {% endif %}
             <span class="user-badge">{{ u.username }} ({{ u.role }})</span>
+            {% if u.role == 'admin' and u.is_master_admin %}
+              <span class="user-badge">admin maestro</span>
+            {% endif %}
             <form action="{{ url_for('logout') }}" method="post" style="display:inline">
               <input type="hidden" name="csrf_token" value="{{ session.csrf_token or csrf_token }}" />
               <button type="submit" class="btn btn-logout">Salir</button>

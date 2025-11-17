@@ -52,6 +52,8 @@ class User(db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), nullable=False, index=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
+    # Super administrador (puede gestionar usuarios de todos los dominios)
+    is_master_admin = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     _ph = PasswordHasher()
@@ -398,8 +400,19 @@ def logout():
 def create_user_cli():
     import getpass
     db.create_all()
+    # asegurar columna is_master_admin para CLI
+    try:
+        conn = db.engine.raw_connection(); cur = conn.cursor()
+        cur.execute("PRAGMA table_info('users')"); cols = [r[1] for r in cur.fetchall()]
+        if 'is_master_admin' not in cols:
+            cur.execute("ALTER TABLE users ADD COLUMN is_master_admin BOOLEAN NOT NULL DEFAULT 0")
+        conn.commit(); conn.close()
+    except Exception:
+        pass
     username = input("Usuario: ").strip()
     role = (input("Rol [admin|cosam|centro]: ").strip() or "centro").lower()
+    is_master_raw = (input("¿Admin maestro? [s/N]: ").strip() or "n").lower()
+    is_master = is_master_raw in {"s", "si", "sí", "y", "yes", "1", "true"}
     pw = getpass.getpass("Contraseña: ")
     if not username or role not in {"admin", "cosam", "centro"} or len(pw) < 8:
         print("Datos inválidos")
@@ -408,37 +421,76 @@ def create_user_cli():
         print("Usuario ya existe")
         return
     u = User(username=username, role=role)
+    try:
+        setattr(u, 'is_master_admin', bool(is_master))
+    except Exception:
+        pass
     u.set_password(pw)
     db.session.add(u)
     db.session.commit()
-    print(f"Usuario creado: {username} ({role})")
+    print(f"Usuario creado: {username} ({role}) | master={'sí' if is_master else 'no'}")
 
 
 @app.route("/admin/users", methods=["GET", "POST"])
 @login_required([UserRole.admin])
 def admin_users():
+    def _domain(email: str) -> str:
+        try:
+            return (email or '').split('@', 1)[1].lower()
+        except Exception:
+            return ''
+    current = g.current_user
+    is_master = bool(getattr(current, 'is_master_admin', False))
     if request.method == "POST":
         username = (request.form.get("username") or "").strip()
         role = (request.form.get("role") or "centro").strip().lower()
         password = request.form.get("password") or ""
         if not _is_valid_email(username) or role not in {"admin", "cosam", "centro"} or len(password) < 8:
             flash("Datos inválidos (rol o contraseña)", "error")
+        elif not is_master and _domain(username) != _domain(current.username):
+            flash("Solo puede crear usuarios de su propio dominio.", "error")
         elif User.query.filter_by(username=username).first():
             flash("El usuario ya existe", "error")
         else:
             u = User(username=username, role=role)
             u.set_password(password)
+            # Solo master puede marcar como master (no se expone en UI de no-master)
+            if is_master and (request.form.get("is_master_admin") == "on"):
+                try:
+                    u.is_master_admin = True
+                except Exception:
+                    pass
             db.session.add(u)
             db.session.commit()
             flash("Usuario creado", "success")
-    users = User.query.order_by(User.created_at.desc()).all()
-    return render_template("admin_users.html", users=users)
+    # Listado: master ve todos; no-master solo su dominio
+    if is_master:
+        users = User.query.order_by(User.created_at.desc()).all()
+    else:
+        from sqlalchemy import func
+        dom = _domain(current.username)
+        users = (
+            User.query
+            .filter(func.lower(User.username).like(f"%@@{dom}".replace('@@','@')))
+            .order_by(User.created_at.desc())
+            .all()
+        )
+    return render_template("admin_users.html", users=users, is_master=is_master)
 
 
 @app.route("/admin/users/<int:user_id>/edit", methods=["GET", "POST"])
 @login_required([UserRole.admin])
 def admin_user_edit(user_id: int):
     u = User.query.get_or_404(user_id)
+    def _domain(email: str) -> str:
+        try:
+            return (email or '').split('@', 1)[1].lower()
+        except Exception:
+            return ''
+    current = g.current_user
+    is_master = bool(getattr(current, 'is_master_admin', False))
+    if not is_master and _domain(u.username) != _domain(current.username):
+        abort(403)
     if request.method == "POST":
         email = (request.form.get("username") or "").strip()
         role = (request.form.get("role") or u.role).strip().lower()
@@ -447,21 +499,26 @@ def admin_user_edit(user_id: int):
         if not _is_valid_email(email) or role not in {"admin", "cosam", "centro"}:
             flash("Datos inválidos", "error")
         else:
+            if not is_master and _domain(email) != _domain(current.username):
+                flash("Solo puede actualizar usuarios de su propio dominio.", "error")
+                return render_template("admin_user_edit.html", user=u, is_master=is_master)
             if email != u.username and User.query.filter_by(username=email).first():
                 flash("Ya existe un usuario con ese correo", "error")
             else:
                 u.username = email
                 u.role = role
                 u.is_active = active
+                if is_master:
+                    u.is_master_admin = True if (request.form.get("is_master_admin") == "on") else False
                 if newpass:
                     if len(newpass) < 8:
                         flash("La contraseña debe tener al menos 8 caracteres", "error")
-                        return render_template("admin_user_edit.html", user=u)
+                        return render_template("admin_user_edit.html", user=u, is_master=is_master)
                     u.set_password(newpass)
                 db.session.commit()
                 flash("Usuario actualizado", "success")
                 return redirect(url_for("admin_users"))
-    return render_template("admin_user_edit.html", user=u)
+    return render_template("admin_user_edit.html", user=u, is_master=is_master)
 
 
 @app.route("/admin/users/<int:user_id>/delete", methods=["POST"]) 
@@ -471,6 +528,21 @@ def admin_user_delete(user_id: int):
     if u.id == g.current_user.id:
         flash("No puede eliminar su propio usuario", "error")
         return redirect(url_for("admin_users"))
+    def _domain(email: str) -> str:
+        try:
+            return (email or '').split('@', 1)[1].lower()
+        except Exception:
+            return ''
+    current = g.current_user
+    if not getattr(current, 'is_master_admin', False):
+        # no-master: prohibido borrar masters o fuera de su dominio
+        try:
+            if getattr(u, 'is_master_admin', False):
+                abort(403)
+        except Exception:
+            pass
+        if _domain(u.username) != _domain(current.username):
+            abort(403)
     db.session.delete(u)
     db.session.commit()
     flash("Usuario eliminado", "success")
@@ -514,7 +586,34 @@ def list_users_cli():
         print("No hay usuarios.")
         return
     for u in users:
-        print(f"- {u.id}: {u.username} | rol={u.role} | activo={'sí' if u.is_active else 'no'} | creado={u.created_at:%Y-%m-%d %H:%M}")
+        is_master = getattr(u, 'is_master_admin', False)
+        print(f"- {u.id}: {u.username} | rol={u.role} | master={'sí' if is_master else 'no'} | activo={'sí' if u.is_active else 'no'} | creado={u.created_at:%Y-%m-%d %H:%M}")
+
+
+@app.cli.command("promote-master")
+def promote_master_cli():
+    """Promueve un usuario existente a admin maestro."""
+    username = input("Usuario (correo) a promover: ").strip()
+    u = User.query.filter_by(username=username).first()
+    if not u:
+        print("Usuario no encontrado")
+        return
+    u.is_master_admin = True
+    db.session.commit()
+    print(f"Usuario {username} promovido a admin maestro")
+
+
+@app.cli.command("demote-master")
+def demote_master_cli():
+    """Quita privilegios de admin maestro a un usuario."""
+    username = input("Usuario (correo) a despromover: ").strip()
+    u = User.query.filter_by(username=username).first()
+    if not u:
+        print("Usuario no encontrado")
+        return
+    u.is_master_admin = False
+    db.session.commit()
+    print(f"Usuario {username} ya no es admin maestro")
 
 
 # -------------------- Bandejas COSAM / Centro --------------------
@@ -1120,8 +1219,7 @@ def inicializar_db():
         _db_initialized = True
 
 
-if __name__ == "__main__":
-    app.run(debug=True)
+
 
 # -------------------- JWT (Ed25519) y CSRF --------------------
 
@@ -1253,6 +1351,15 @@ def _security_and_csrf():
     global _db_initialized
     if not _db_initialized:
         db.create_all()
+        # Pequeña migración runtime: asegurar columna de super admin
+        try:
+            conn = db.engine.raw_connection(); cur = conn.cursor()
+            cur.execute("PRAGMA table_info('users')"); cols = [r[1] for r in cur.fetchall()]
+            if 'is_master_admin' not in cols:
+                cur.execute("ALTER TABLE users ADD COLUMN is_master_admin BOOLEAN NOT NULL DEFAULT 0")
+            conn.commit(); conn.close()
+        except Exception:
+            pass
         _db_initialized = True
     # Semilla inicial de GES si la tabla está vacía
     try:
@@ -1302,3 +1409,7 @@ def _inject_auth_ctx():
 
 def _is_valid_email(email: str) -> bool:
     return bool(re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$", (email or "").strip(), re.IGNORECASE))
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
