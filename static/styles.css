@@ -103,6 +103,17 @@ h2 {
   font-weight: 600;
 }
 
+.doctor-fields {
+  grid-column: 1 / -1;
+  display: none;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.doctor-fields.active {
+  display: grid;
+}
+
 .field-note {
   font-size: 0.8rem;
   color: var(--muted);
@@ -198,6 +209,67 @@ h2 {
 
 .checkbox-item span {
   font-weight: 500;
+}
+
+.toggle-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  background: white;
+}
+
+.toggle-field span {
+  font-weight: 600;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 46px;
+  height: 26px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-switch .slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: #d1d5db;
+  transition: background-color 0.2s ease;
+  border-radius: 999px;
+}
+
+.toggle-switch .slider::before {
+  content: "";
+  position: absolute;
+  height: 20px;
+  width: 20px;
+  left: 3px;
+  top: 3px;
+  background-color: white;
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.toggle-switch input:checked + .slider {
+  background-color: var(--primary);
+}
+
+.toggle-switch input:focus + .slider {
+  box-shadow: 0 0 0 3px rgba(39, 110, 241, 0.35);
+}
+
+.toggle-switch input:checked + .slider::before {
+  transform: translateX(20px);
 }
 
 .checkbox-item input {
@@ -373,6 +445,23 @@ a.secondary:hover {
   background: #f3f4f6;
 }
 
+.entries-table .cell-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.cell-actions .actions-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.cell-actions .actions-info .user-badge {
+  display: inline-block;
+  margin-top: 0.25rem;
+}
+
 .empty-state {
   color: var(--muted);
   text-align: center;
@@ -432,3 +521,50 @@ a.secondary:hover {
 .header-nav .btn.btn-logout:hover{background:#ffdede}
 .header-nav .user-badge{opacity:.75;margin:0 8px}
 .entries-table .danger{background:#ffe8e8;color:#b42323;border:1px solid #f5c2c2;padding:6px 10px;border-radius:6px}
+
+/* Reportes COSAM */
+.report-chart-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.report-chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.report-chart-wrapper {
+  display: flex;
+  justify-content: center;
+}
+
+.report-chart-wrapper canvas {
+  max-width: 720px;
+  width: 100%;
+}
+
+.chart-type-select span {
+  font-size: 0.9rem;
+  margin-right: 0.5rem;
+}
+
+.chart-type-select select {
+  min-width: 160px;
+}
+
+.metric-selects {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.metric-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 200px;
+}

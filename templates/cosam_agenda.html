@@ -17,7 +17,8 @@
             <th>Fecha/Hora</th>
             <th>Paciente</th>
             <th>RUT</th>
-            <th>Lugar</th>
+            <th>Médico</th>
+            <th>Box</th>
             <th>Notas</th>
             <th>Acciones</th>
           </tr>
@@ -28,6 +29,7 @@
               <td>{{ a.scheduled_at.strftime('%d/%m/%Y %H:%M') }}</td>
               <td>{{ f.nombre }}</td>
               <td>{{ f.rut or '-' }}</td>
+              <td>{{ a.doctor or '-' }}</td>
               <td>{{ a.place or '-' }}</td>
               <td>{{ a.notes or '-' }}</td>
               <td>

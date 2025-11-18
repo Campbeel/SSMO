@@ -3,30 +3,73 @@
 {% block title %}Admin usuarios - SSMO{% endblock %}
 
 {% block content %}
+  {% if domain_suffix %}
+    <style>
+      .domain-input {
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+      }
+      .domain-input .suffix {
+        font-weight: 600;
+      }
+      .domain-input input {
+        flex: 1;
+      }
+    </style>
+  {% endif %}
   <h2>Usuarios</h2>
-  <form method="post" class="formulario">
+  <form method="post" class="formulario" id="user-create-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <div class="field-grid">
       <label>
         <span>Correo (usuario)</span>
-        <input type="email" name="username" required />
+        {% if domain_suffix %}
+          <div class="domain-input">
+            <input type="text" name="username" required placeholder="usuario" />
+            <span class="suffix">{{ domain_suffix }}</span>
+          </div>
+          <small>Solo escribe el nombre antes del dominio; se completará automáticamente.</small>
+        {% else %}
+          <input type="email" name="username" required />
+        {% endif %}
       </label>
       <label>
         <span>Rol</span>
         <select name="role" required>
-          <option value="centro">centro</option>
-          <option value="cosam">cosam</option>
-          <option value="admin">admin</option>
+          {% for opt in allowed_roles %}
+            <option value="{{ opt }}">{{ opt }}</option>
+          {% endfor %}
         </select>
       </label>
       <label>
         <span>Contraseña</span>
         <input type="password" name="password" minlength="8" required />
       </label>
+      <label class="toggle-field doctor-toggle" data-doctor-toggle>
+        <span>Ingresar datos médico</span>
+        <span class="toggle-switch">
+          <input type="checkbox" name="doctor_info" id="doctor-info-create" />
+          <span class="slider"></span>
+        </span>
+      </label>
+      <div class="doctor-fields">
+        <label>
+          <span>Nombre del médico</span>
+          <input type="text" name="doctor_name" />
+        </label>
+        <label>
+          <span>RUT del médico</span>
+          <input type="text" name="doctor_rut" placeholder="12.345.678-9" />
+        </label>
+      </div>
       {% if is_master %}
-      <label>
+      <label class="toggle-field">
         <span>Admin maestro</span>
-        <input type="checkbox" name="is_master_admin" />
+        <span class="toggle-switch">
+          <input type="checkbox" name="is_master_admin" />
+          <span class="slider"></span>
+        </span>
       </label>
       {% endif %}
     </div>
@@ -72,5 +115,37 @@
   <div class="actions" style="margin-top:1rem;">
     <a class="secondary" href="{{ url_for('admin_ges') }}">Gestionar GES</a>
   </div>
+  <script>
+    (function () {
+      const doctorRoles = {{ doctor_roles|tojson }};
+      const form = document.getElementById("user-create-form");
+      if (!form) return;
+      const roleSelect = form.querySelector('select[name="role"]');
+      const toggleRow = form.querySelector('[data-doctor-toggle]');
+      const doctorCheckbox = form.querySelector('input[name="doctor_info"]');
+      const doctorFields = form.querySelector('.doctor-fields');
+      function applyDoctorState() {
+        const enabledRole = roleSelect && doctorRoles.includes(roleSelect.value);
+        if (toggleRow) {
+          toggleRow.style.display = enabledRole ? "flex" : "none";
+        }
+        if (!enabledRole) {
+          doctorCheckbox.checked = false;
+        }
+        if (doctorFields) {
+          if (doctorCheckbox.checked && enabledRole) {
+            doctorFields.classList.add("active");
+          } else {
+            doctorFields.classList.remove("active");
+          }
+        }
+      }
+      if (roleSelect && doctorCheckbox) {
+        roleSelect.addEventListener("change", applyDoctorState);
+        doctorCheckbox.addEventListener("change", applyDoctorState);
+      }
+      applyDoctorState();
+    })();
+  </script>
 {% endblock %}
 

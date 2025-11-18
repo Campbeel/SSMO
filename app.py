@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, Callable, Mapping
 import os
 import re
 import base64
@@ -11,11 +11,13 @@ import secrets
 import enum
 import functools
 import smtplib
+import random
 from email.message import EmailMessage
+import click
 
 from flask import Flask, flash, redirect, render_template, request, url_for, jsonify, abort, session, make_response, g
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, func
 from argon2 import PasswordHasher
 import jwt
 from cryptography.hazmat.primitives import serialization
@@ -38,6 +40,12 @@ app.config["DEV_SHOW_USER"] = os.environ.get("DEV_SHOW_USER", "0") in {"1", "tru
 
 db = SQLAlchemy(app)
 
+APPOINTMENT_DOCTORS = ["Dr. A", "Dr. B", "Dr. C", "Dr. D", "Dr. E"]
+APPOINTMENT_PLACES = ["Box 1", "Box 2", "Box 3", "Box 4", "Box 5"]
+APPOINTMENT_START_TIME = "08:00"
+APPOINTMENT_END_TIME = "19:00"
+APPOINTMENT_SLOT_MINUTES = 15
+
 
 class UserRole(enum.Enum):
     admin = "admin"
@@ -55,6 +63,8 @@ class User(db.Model):
     # Super administrador (puede gestionar usuarios de todos los dominios)
     is_master_admin = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    doctor_name = db.Column(db.String(160))
+    doctor_rut = db.Column(db.String(20))
 
     _ph = PasswordHasher()
 
@@ -93,6 +103,7 @@ class Appointment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     case_id = db.Column(db.Integer, ForeignKey("cases.id"), nullable=False, index=True)
     scheduled_at = db.Column(db.DateTime, nullable=False)
+    doctor = db.Column("professional", db.String(160))
     place = db.Column(db.String(160))
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -104,6 +115,59 @@ class ReturnEvent(db.Model):
     case_id = db.Column(db.Integer, ForeignKey("cases.id"), nullable=False, index=True)
     reason = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+@functools.lru_cache(maxsize=1)
+def _schedule_time_slots() -> List[str]:
+    slots: List[str] = []
+    current = datetime.strptime(APPOINTMENT_START_TIME, "%H:%M")
+    end = datetime.strptime(APPOINTMENT_END_TIME, "%H:%M")
+    while current <= end:
+        slots.append(current.strftime("%H:%M"))
+        current += timedelta(minutes=APPOINTMENT_SLOT_MINUTES)
+    return slots
+
+
+def _default_schedule_form_values(appointment: Optional[Appointment] = None) -> Dict[str, str]:
+    if appointment:
+        when = appointment.scheduled_at
+        return {
+            "date": when.strftime("%Y-%m-%d"),
+            "time": when.strftime("%H:%M"),
+            "place": appointment.place or "",
+            "doctor": appointment.doctor or "",
+            "notes": appointment.notes or "",
+        }
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    return {"date": today, "time": "", "place": "", "doctor": "", "notes": ""}
+
+
+def _render_schedule_form(caso: Case, form: MedicalForm, appointment: Optional[Appointment],
+                          form_values: Dict[str, str]) -> Any:
+    return render_template(
+        "cosam_schedule.html",
+        caso=caso,
+        form=form,
+        appointment=appointment,
+        form_values=form_values,
+        time_slots=_schedule_time_slots(),
+        doctor_choices=APPOINTMENT_DOCTORS,
+        place_choices=APPOINTMENT_PLACES,
+    )
+
+
+def _validate_schedule_slot(when: datetime, doctor: str, place: str,
+                            ignore_case_id: Optional[int] = None) -> Optional[str]:
+    base = Appointment.query.filter(Appointment.scheduled_at == when)
+    if ignore_case_id:
+        base = base.filter(Appointment.case_id != ignore_case_id)
+    doctor_conflict = base.filter(Appointment.doctor == doctor).first()
+    if doctor_conflict:
+        return f"{doctor} ya tiene una hora asignada en ese bloque."
+    place_conflict = base.filter(Appointment.place == place).first()
+    if place_conflict:
+        return f"El {place} ya está ocupado en ese bloque horario."
+    return None
 
 
 # -------------------- Utilidades --------------------
@@ -406,6 +470,10 @@ def create_user_cli():
         cur.execute("PRAGMA table_info('users')"); cols = [r[1] for r in cur.fetchall()]
         if 'is_master_admin' not in cols:
             cur.execute("ALTER TABLE users ADD COLUMN is_master_admin BOOLEAN NOT NULL DEFAULT 0")
+        if 'doctor_name' not in cols:
+            cur.execute("ALTER TABLE users ADD COLUMN doctor_name VARCHAR(160)")
+        if 'doctor_rut' not in cols:
+            cur.execute("ALTER TABLE users ADD COLUMN doctor_rut VARCHAR(20)")
         conn.commit(); conn.close()
     except Exception:
         pass
@@ -414,6 +482,19 @@ def create_user_cli():
     is_master_raw = (input("¿Admin maestro? [s/N]: ").strip() or "n").lower()
     is_master = is_master_raw in {"s", "si", "sí", "y", "yes", "1", "true"}
     pw = getpass.getpass("Contraseña: ")
+    doctor_name = None
+    doctor_rut = None
+    if role in {"centro", "cosam"}:
+        wants_doctor = (input("¿Guardar datos de médico por defecto? [s/N]: ").strip() or "n").lower()
+        if wants_doctor in {"s", "si", "sí", "y", "yes", "1", "true"}:
+            doctor_name = input("Nombre médico: ").strip()
+            doctor_rut = input("RUT médico: ").strip()
+            if not doctor_name or not doctor_rut:
+                print("Debe ingresar nombre y RUT del médico.")
+                return
+            if not _rut_valido(doctor_rut):
+                print("RUT del médico inválido.")
+                return
     if not username or role not in {"admin", "cosam", "centro"} or len(pw) < 8:
         print("Datos inválidos")
         return
@@ -425,6 +506,10 @@ def create_user_cli():
         setattr(u, 'is_master_admin', bool(is_master))
     except Exception:
         pass
+    if doctor_name:
+        u.doctor_name = doctor_name
+    if doctor_rut:
+        u.doctor_rut = doctor_rut
     u.set_password(pw)
     db.session.add(u)
     db.session.commit()
@@ -441,19 +526,37 @@ def admin_users():
             return ''
     current = g.current_user
     is_master = bool(getattr(current, 'is_master_admin', False))
+    domain = _domain(current.username)
+    allowed_roles = ["centro", "cosam", "admin"] if is_master else ["centro", "cosam"]
+    domain_suffix = f"@{domain}" if (domain and not is_master) else ""
     if request.method == "POST":
         username = (request.form.get("username") or "").strip()
         role = (request.form.get("role") or "centro").strip().lower()
         password = request.form.get("password") or ""
-        if not _is_valid_email(username) or role not in {"admin", "cosam", "centro"} or len(password) < 8:
-            flash("Datos inválidos (rol o contraseña)", "error")
-        elif not is_master and _domain(username) != _domain(current.username):
+        doctor_enabled = request.form.get("doctor_info") == "on"
+        doctor_name = (request.form.get("doctor_name") or "").strip()
+        doctor_rut = (request.form.get("doctor_rut") or "").strip()
+        doctor_enabled = doctor_enabled and role in {"centro", "cosam"}
+        if not is_master and domain and "@" not in username:
+            username = f"{username}@{domain}"
+        if role not in allowed_roles:
+            flash("No tiene permiso para asignar ese rol", "error")
+        elif not _is_valid_email(username) or len(password) < 8:
+            flash("Datos inválidos (correo o contraseña)", "error")
+        elif doctor_enabled and (not doctor_name or not doctor_rut):
+            flash("Debe ingresar el nombre y RUT del médico.", "error")
+        elif doctor_enabled and not _rut_valido(doctor_rut):
+            flash("El RUT del médico no es válido.", "error")
+        elif not is_master and _domain(username) != domain:
             flash("Solo puede crear usuarios de su propio dominio.", "error")
         elif User.query.filter_by(username=username).first():
             flash("El usuario ya existe", "error")
         else:
             u = User(username=username, role=role)
             u.set_password(password)
+            if doctor_enabled:
+                u.doctor_name = doctor_name
+                u.doctor_rut = doctor_rut
             # Solo master puede marcar como master (no se expone en UI de no-master)
             if is_master and (request.form.get("is_master_admin") == "on"):
                 try:
@@ -467,15 +570,21 @@ def admin_users():
     if is_master:
         users = User.query.order_by(User.created_at.desc()).all()
     else:
-        from sqlalchemy import func
-        dom = _domain(current.username)
-        users = (
-            User.query
-            .filter(func.lower(User.username).like(f"%@@{dom}".replace('@@','@')))
-            .order_by(User.created_at.desc())
-            .all()
-        )
-    return render_template("admin_users.html", users=users, is_master=is_master)
+        query = User.query
+        if domain:
+            pattern = f"%@{domain}".lower()
+            query = query.filter(func.lower(User.username).like(pattern))
+        else:
+            query = query.filter(~User.username.contains("@"))
+        users = query.order_by(User.created_at.desc()).all()
+    return render_template(
+        "admin_users.html",
+        users=users,
+        is_master=is_master,
+        allowed_roles=allowed_roles,
+        domain_suffix=domain_suffix,
+        doctor_roles=["centro", "cosam"],
+    )
 
 
 @app.route("/admin/users/<int:user_id>/edit", methods=["GET", "POST"])
@@ -496,29 +605,46 @@ def admin_user_edit(user_id: int):
         role = (request.form.get("role") or u.role).strip().lower()
         active = True if request.form.get("is_active") == "on" else False
         newpass = request.form.get("password") or ""
+        doctor_enabled = request.form.get("doctor_info") == "on"
+        doctor_name = (request.form.get("doctor_name") or "").strip()
+        doctor_rut = (request.form.get("doctor_rut") or "").strip()
+        if role not in {"centro", "cosam"}:
+            doctor_enabled = False
         if not _is_valid_email(email) or role not in {"admin", "cosam", "centro"}:
             flash("Datos inválidos", "error")
         else:
             if not is_master and _domain(email) != _domain(current.username):
                 flash("Solo puede actualizar usuarios de su propio dominio.", "error")
-                return render_template("admin_user_edit.html", user=u, is_master=is_master)
+                return render_template("admin_user_edit.html", user=u, is_master=is_master, doctor_roles=["centro", "cosam"])
+            if doctor_enabled and (not doctor_name or not doctor_rut):
+                flash("Debe ingresar el nombre y RUT del médico.", "error")
+                return render_template("admin_user_edit.html", user=u, is_master=is_master, doctor_roles=["centro", "cosam"])
+            if doctor_enabled and not _rut_valido(doctor_rut):
+                flash("El RUT del médico no es válido.", "error")
+                return render_template("admin_user_edit.html", user=u, is_master=is_master, doctor_roles=["centro", "cosam"])
             if email != u.username and User.query.filter_by(username=email).first():
                 flash("Ya existe un usuario con ese correo", "error")
             else:
                 u.username = email
                 u.role = role
                 u.is_active = active
+                if doctor_enabled:
+                    u.doctor_name = doctor_name
+                    u.doctor_rut = doctor_rut
+                else:
+                    u.doctor_name = None
+                    u.doctor_rut = None
                 if is_master:
                     u.is_master_admin = True if (request.form.get("is_master_admin") == "on") else False
                 if newpass:
                     if len(newpass) < 8:
                         flash("La contraseña debe tener al menos 8 caracteres", "error")
-                        return render_template("admin_user_edit.html", user=u, is_master=is_master)
+                        return render_template("admin_user_edit.html", user=u, is_master=is_master, doctor_roles=["centro", "cosam"])
                     u.set_password(newpass)
                 db.session.commit()
                 flash("Usuario actualizado", "success")
                 return redirect(url_for("admin_users"))
-    return render_template("admin_user_edit.html", user=u, is_master=is_master)
+    return render_template("admin_user_edit.html", user=u, is_master=is_master, doctor_roles=["centro", "cosam"])
 
 
 @app.route("/admin/users/<int:user_id>/delete", methods=["POST"]) 
@@ -590,6 +716,27 @@ def list_users_cli():
         print(f"- {u.id}: {u.username} | rol={u.role} | master={'sí' if is_master else 'no'} | activo={'sí' if u.is_active else 'no'} | creado={u.created_at:%Y-%m-%d %H:%M}")
 
 
+@app.cli.command("reset-password")
+@click.argument("username")
+@click.option("--password", "-p", help="Contraseña nueva; si se omite se solicitará en la terminal.")
+def reset_password_cli(username: str, password: Optional[str]):
+    """Actualiza la contraseña de un usuario existente."""
+    import getpass
+
+    db.create_all()
+    u = User.query.filter_by(username=username).first()
+    if not u:
+        print("Usuario no encontrado")
+        return
+    new_password = password or getpass.getpass("Nueva contraseña: ")
+    if len(new_password) < 8:
+        print("La contraseña debe tener al menos 8 caracteres.")
+        return
+    u.set_password(new_password)
+    db.session.commit()
+    print(f"Contraseña actualizada para {u.username}")
+
+
 @app.cli.command("promote-master")
 def promote_master_cli():
     """Promueve un usuario existente a admin maestro."""
@@ -614,6 +761,138 @@ def demote_master_cli():
     u.is_master_admin = False
     db.session.commit()
     print(f"Usuario {username} ya no es admin maestro")
+
+
+@app.cli.command("seed-demo-data")
+@click.option("--password", default="Cambio123!", show_default=True, help="Contraseña asignada a los usuarios generados.")
+def seed_demo_data(password: str):
+    """Genera usuarios y fichas de ejemplo para pruebas."""
+    db.create_all()
+    cosam_accounts = []
+    admin_accounts = []
+    center_accounts = []
+
+    def _format_rut(num: int) -> str:
+        cuerpo = f"{num:08d}"
+        dv = _digito_verificador(cuerpo)
+        cuerpo_fmt = f"{int(cuerpo):,}".replace(",", ".")
+        return f"{cuerpo_fmt}-{dv}"
+
+    def ensure_user(username: str, role: str, *, is_master: bool = False,
+                    doctor_name: Optional[str] = None, doctor_rut: Optional[str] = None) -> User:
+        user = User.query.filter_by(username=username).first()
+        if user:
+            return user
+        user = User(username=username, role=role, is_master_admin=is_master)
+        if doctor_name and doctor_rut:
+            user.doctor_name = doctor_name
+            user.doctor_rut = doctor_rut
+        user.set_password(password)
+        db.session.add(user)
+        return user
+
+    cosam_names = ["La Reina", "Ñuñoa", "Peñalolén", "Macul", "Providencia"]
+    for idx, name in enumerate(cosam_names, start=1):
+        username = f"cosam{idx}@cosam.cl"
+        user = ensure_user(username, UserRole.cosam.value)
+        cosam_accounts.append(user)
+
+    admin_domains = [
+        "cordillera.salud.cl",
+        "poniente.salud.cl",
+        "sur.salud.cl",
+        "norte.salud.cl",
+        "costero.salud.cl",
+    ]
+    for idx, domain in enumerate(admin_domains, start=1):
+        admin_user = ensure_user(f"admin{idx}@{domain}", UserRole.admin.value, is_master=False)
+        admin_accounts.append((admin_user, domain))
+
+    rut_seed = 8000000
+    for domain_idx, (admin_user, domain) in enumerate(admin_accounts, start=1):
+        for n in range(1, 4):
+            rut_seed += 7
+            username = f"centro{domain_idx}{n}@{domain}"
+            doctor_name = f"Dr. Centro {domain_idx}-{n}"
+            doctor_rut = _format_rut(rut_seed)
+            user = ensure_user(
+                username,
+                UserRole.centro.value,
+                doctor_name=doctor_name,
+                doctor_rut=doctor_rut,
+            )
+            center_accounts.append(user)
+
+    db.session.commit()
+
+    random.seed(42)
+    comunas = ["Las Condes", "Peñalolén", "Ñuñoa", "Providencia", "La Reina", "Macul"]
+    patologias = ["Epilepsia", "Esquizofrenia", "Trastorno bipolar", "VIH", "Cáncer"]
+    motivos = [
+        "Paciente presenta crisis recurrentes.",
+        "Seguimiento de controles anuales.",
+        "Derivación por evaluación interdisciplinaria.",
+        "Necesita evaluación complementaria.",
+    ]
+    establecimientos = ["CESFAM Cordillera", "CESFAM Oriente", "CESFAM Poniente"]
+
+    created_forms = 0
+    for idx, center_user in enumerate(center_accounts, start=1):
+        for extra in range(2):
+            rut_seed += 5
+            paciente_nombre = f"Paciente {idx}-{extra+1}"
+            rut_paciente = _format_rut(rut_seed)
+            sexo = random.choice(["Masculino", "Femenino"])
+            nacimiento = datetime(2005 - (idx % 5), random.randint(1, 12), random.randint(1, 28))
+            edad = str(datetime.utcnow().year - nacimiento.year)
+            form = MedicalForm(
+                servicio_salud="Metropolitano Oriente",
+                establecimiento=random.choice(establecimientos),
+                especialidad=random.choice(["Psiquiatría", "Neurología", "Pediatría"]),
+                unidad="Unidad de Salud Mental",
+                nombre=paciente_nombre,
+                historia_clinica=f"HC-{idx:03d}{extra}",
+                rut=rut_paciente,
+                sexo=sexo,
+                fecha_nacimiento=nacimiento.strftime("%Y-%m-%d"),
+                edad=edad,
+                domicilio=f"Calle {idx} #{100 + extra}",
+                comuna=random.choice(comunas),
+                telefono1=f"+5699{random.randint(1000000,9999999)}",
+                telefono2=f"+5698{random.randint(1000000,9999999)}",
+                correo1=f"{paciente_nombre.replace(' ', '').lower()}@mail.com",
+                correo2="",
+                establecimiento_derivacion=random.choice(establecimientos),
+                grupo_poblacional=random.choice(["Niño", "Adolescente", "Adulto"]),
+                tipo_consulta=random.choice(["Primera vez", "Control", "Urgencia"]),
+                tiene_terapias=random.choice(["si", "no"]),
+                terapias_otro="",
+                hipotesis_diagnostico=random.choice(motivos),
+                es_ges=random.choice(["si", "no"]),
+                fundamento_diagnostico="Antecedentes clínicos compatibles con el cuadro.",
+                examenes_realizados="EEG, laboratorio general.",
+                nombre_medico=center_user.doctor_name or f"Dr. {center_user.username.split('@')[0]}",
+                rut_medico=center_user.doctor_rut or _format_rut(rut_seed + 1),
+                patologias_ges="; ".join(random.sample(patologias, 2)),
+            )
+            db.session.add(form)
+            db.session.flush()
+            case = Case(
+                form_id=form.id,
+                status=random.choice(["enviado", "aceptado", "devuelto"]),
+                prioridad=random.choice(["bajo", "medio", "alto"]),
+                sender_center_user_id=center_user.id,
+            )
+            db.session.add(case)
+            created_forms += 1
+
+    db.session.commit()
+
+    print(f"Usuarios COSAM generados: {len(cosam_accounts)}")
+    print(f"Usuarios admin generados: {len(admin_accounts)}")
+    print(f"Usuarios centro generados: {len(center_accounts)}")
+    print(f"Formularios creados: {created_forms}")
+    print(f"Contraseña utilizada: {password}")
 
 
 # -------------------- Bandejas COSAM / Centro --------------------
@@ -702,28 +981,48 @@ def cosam_reschedule(case_id: int):
         date_str = (request.form.get("date") or "").strip()
         time_str = (request.form.get("time") or "").strip()
         place = (request.form.get("place") or "").strip()
+        doctor = (request.form.get("doctor") or "").strip()
         notes = (request.form.get("notes") or "").strip()
+        form_values = {
+            "date": date_str,
+            "time": time_str,
+            "place": place,
+            "doctor": doctor,
+            "notes": notes,
+        }
+        if doctor not in APPOINTMENT_DOCTORS:
+            flash("Seleccione un médico válido.", "error")
+            return _render_schedule_form(caso, form, ap, form_values)
+        if place not in APPOINTMENT_PLACES:
+            flash("Seleccione un box válido.", "error")
+            return _render_schedule_form(caso, form, ap, form_values)
         try:
             when = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
         except Exception:
             flash("Fecha/hora inválida", "error")
-            return render_template("cosam_schedule.html", caso=caso, form=form)
+            return _render_schedule_form(caso, form, ap, form_values)
+        conflict = _validate_schedule_slot(when, doctor, place, ignore_case_id=caso.id)
+        if conflict:
+            flash(conflict, "error")
+            return _render_schedule_form(caso, form, ap, form_values)
         if ap:
             ap.scheduled_at = when
             ap.place = place
+            ap.doctor = doctor
             ap.notes = notes
         else:
-            ap = Appointment(case_id=caso.id, scheduled_at=when, place=place, notes=notes)
+            ap = Appointment(case_id=caso.id, scheduled_at=when, place=place, doctor=doctor, notes=notes)
             db.session.add(ap)
         db.session.commit()
         destinatario = form.correo1 or form.correo2
         if destinatario:
             _send_email(destinatario, "Reagendamiento de hora",
-                        f"Estimado/a {form.nombre}, su hora fue reagendada para {when.strftime('%d/%m/%Y %H:%M')} en {place or 'COSAM'}.")
+                        f"Estimado/a {form.nombre}, su hora fue reagendada para {when.strftime('%d/%m/%Y %H:%M')} en {place} con {doctor}.")
         flash("Hora actualizada", "success")
         return redirect(url_for("cosam_pacientes"))
     # GET con ap existente: prellenar
-    return render_template("cosam_schedule.html", caso=caso, form=form)
+    form_values = _default_schedule_form_values(ap)
+    return _render_schedule_form(caso, form, ap, form_values)
 
 
 @app.route("/cosam/attend/<int:case_id>", methods=["POST"]) 
@@ -767,26 +1066,45 @@ def cosam_schedule(case_id: int):
         date_str = (request.form.get("date") or "").strip()
         time_str = (request.form.get("time") or "").strip()
         place = (request.form.get("place") or "").strip()
+        doctor = (request.form.get("doctor") or "").strip()
         notes = (request.form.get("notes") or "").strip()
+        form_values = {
+            "date": date_str,
+            "time": time_str,
+            "place": place,
+            "doctor": doctor,
+            "notes": notes,
+        }
+        if doctor not in APPOINTMENT_DOCTORS:
+            flash("Seleccione un médico válido.", "error")
+            return _render_schedule_form(caso, form, existing, form_values)
+        if place not in APPOINTMENT_PLACES:
+            flash("Seleccione un box válido.", "error")
+            return _render_schedule_form(caso, form, existing, form_values)
         try:
             when = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
         except Exception:
             flash("Fecha/hora inválida", "error")
-            return render_template("cosam_schedule.html", caso=caso, form=form)
+            return _render_schedule_form(caso, form, existing, form_values)
         if existing:
             flash("Ya tenía hora agendada.", "error")
             return redirect(url_for("cosam_pacientes"))
-        ap = Appointment(case_id=caso.id, scheduled_at=when, place=place, notes=notes)
+        conflict = _validate_schedule_slot(when, doctor, place)
+        if conflict:
+            flash(conflict, "error")
+            return _render_schedule_form(caso, form, existing, form_values)
+        ap = Appointment(case_id=caso.id, scheduled_at=when, place=place, doctor=doctor, notes=notes)
         db.session.add(ap)
         db.session.commit()
         # Email al paciente (si existe correo)
         destinatario = form.correo1 or form.correo2
         if destinatario:
             _send_email(destinatario, "Confirmación de hora",
-                        f"Estimado/a {form.nombre}, su hora fue agendada para {when.strftime('%d/%m/%Y %H:%M')} en {place or 'COSAM'}.\nSaludos.")
+                        f"Estimado/a {form.nombre}, su hora fue agendada para {when.strftime('%d/%m/%Y %H:%M')} en {place} con {doctor}.\nSaludos.")
         flash("Hora agendada", "success")
         return redirect(url_for("cosam_pacientes"))
-    return render_template("cosam_schedule.html", caso=caso, form=form)
+    form_values = _default_schedule_form_values(existing)
+    return _render_schedule_form(caso, form, existing, form_values)
 
 
 @app.route("/cosam/return/<int:case_id>/prefill")
@@ -861,6 +1179,399 @@ def seed_db():
     db.session.add(ejemplo)
     db.session.commit()
     print("Base creada y sembrada (main): 1 formulario de ejemplo.")
+
+
+def _build_cosam_report():
+    """Construye el reporte COSAM (filtros, totales y agregados) a partir de los query params actuales."""
+    from collections import defaultdict, defaultdict as _dd
+
+    fecha_desde_str = (request.args.get("desde") or "").strip()
+    fecha_hasta_str = (request.args.get("hasta") or "").strip()
+
+    query = db.session.query(MedicalForm, Case).join(Case, Case.form_id == MedicalForm.id)
+
+    try:
+        if fecha_desde_str:
+            desde = datetime.strptime(fecha_desde_str, "%Y-%m-%d")
+            query = query.filter(MedicalForm.created_at >= desde)
+    except Exception:
+        flash("Fecha 'desde' no v?lida. Usando todos los registros.", "error")
+        fecha_desde_str = ""
+    try:
+        if fecha_hasta_str:
+            hasta = datetime.strptime(fecha_hasta_str, "%Y-%m-%d") + timedelta(days=1)
+            query = query.filter(MedicalForm.created_at < hasta)
+    except Exception:
+        flash("Fecha 'hasta' no v?lida. Usando todos los registros.", "error")
+        fecha_hasta_str = ""
+
+    filas: List[Tuple[MedicalForm, Case]] = query.order_by(MedicalForm.created_at.desc()).all()
+    total_casos = len(filas)
+
+    comunas_stats: Dict[str, Dict[str, int]] = defaultdict(lambda: {"total": 0, "ges": 0, "no_ges": 0})
+    patologias_stats: Dict[str, int] = defaultdict(int)
+
+    total_ges = 0
+    total_no_ges = 0
+
+    for form, case in filas:
+        es_ges_flag = _form_es_ges(form)
+        comuna = (form.comuna or "Sin comuna").strip() or "Sin comuna"
+
+        if es_ges_flag:
+            total_ges += 1
+        else:
+            total_no_ges += 1
+
+        comunas_stats[comuna]["total"] += 1
+        if es_ges_flag:
+            comunas_stats[comuna]["ges"] += 1
+        else:
+            comunas_stats[comuna]["no_ges"] += 1
+
+        if es_ges_flag:
+            for pat in form.patologias_ges_lista():
+                patologias_stats[pat] += 1
+
+    comunas_ordenadas = sorted(comunas_stats.items(), key=lambda x: x[0])
+    patologias_ordenadas = sorted(patologias_stats.items(), key=lambda x: (-x[1], x[0]))
+
+    comunas_labels = [nombre for (nombre, _stats) in comunas_ordenadas]
+    comunas_total = [stats["total"] for (_nombre, stats) in comunas_ordenadas]
+    comunas_ges = [stats["ges"] for (_nombre, stats) in comunas_ordenadas]
+    comunas_no_ges = [stats["no_ges"] for (_nombre, stats) in comunas_ordenadas]
+    patologias_labels = [nombre for (nombre, _cnt) in patologias_ordenadas]
+    patologias_counts = [cnt for (_nombre, cnt) in patologias_ordenadas]
+
+    temp_generic: Dict[str, Dict[str, int]] = {
+        "comuna": _dd(int),
+        "sexo": _dd(int),
+        "edad_tramo": _dd(int),
+        "es_ges": _dd(int),
+        "tipo_consulta": _dd(int),
+        "patologia_ges": _dd(int),
+    }
+
+    for form, case in filas:
+        comuna_val = (form.comuna or "Sin comuna").strip() or "Sin comuna"
+        sexo_val = (form.sexo or "Sin dato").strip() or "Sin dato"
+        edad_val = _age_bucket(form.edad)
+        ges_label = "GES" if _form_es_ges(form) else "No GES"
+        tipo_val = (form.tipo_consulta or "Sin dato").strip() or "Sin dato"
+        pat_list = form.patologias_ges_lista()
+        pat_val = pat_list[0] if pat_list else "Sin patolog?a GES"
+
+        temp_generic["comuna"][comuna_val] += 1
+        temp_generic["sexo"][sexo_val] += 1
+        temp_generic["edad_tramo"][edad_val] += 1
+        temp_generic["es_ges"][ges_label] += 1
+        temp_generic["tipo_consulta"][tipo_val] += 1
+        temp_generic["patologia_ges"][pat_val] += 1
+
+    generic_chart: Dict[str, Dict[str, List[Any]]] = {}
+    for key, mapping in temp_generic.items():
+        items = sorted(mapping.items(), key=lambda x: (-x[1], x[0]))
+        generic_chart[key] = {
+            "labels": [name for name, _cnt in items],
+            "values": [cnt for _name, cnt in items],
+        }
+
+    return {
+        "filtros": {
+            "desde": fecha_desde_str,
+            "hasta": fecha_hasta_str,
+        },
+        "filas": filas,
+        "comunas": comunas_ordenadas,
+        "patologias": patologias_ordenadas,
+        "totales": {
+            "total": total_casos,
+            "ges": total_ges,
+            "no_ges": total_no_ges,
+        },
+        "chart": {
+            "comunas_labels": comunas_labels,
+            "comunas_total": comunas_total,
+            "comunas_ges": comunas_ges,
+            "comunas_no_ges": comunas_no_ges,
+            "patologias_labels": patologias_labels,
+            "patologias_counts": patologias_counts,
+            "generic": generic_chart,
+        },
+    }
+
+
+
+@app.route("/cosam/reportes", methods=["GET"])
+@login_required([UserRole.cosam])
+def cosam_reportes():
+    """
+    Vista de reportes dinámicos para usuarios COSAM.
+    """
+    chart_type = (request.args.get("chart_type") or "bar").strip() or "bar"
+    if chart_type not in {"bar", "line", "pie"}:
+        chart_type = "bar"
+
+    metric_keys = _parse_metric_keys(request.args, chart_type=chart_type)
+
+    data = _build_cosam_report()
+    labels, values, title, datasets = _build_metric_dataset(data["filas"], metric_keys, chart_type)
+
+    return render_template(
+        "cosam_reports.html",
+        filtros=data["filtros"],
+        comunas=data["comunas"],
+        patologias=data["patologias"],
+        totales=data["totales"],
+        chart=data["chart"],
+        current={"labels": labels, "values": values, "title": title, "datasets": datasets},
+        metric_keys=metric_keys,
+        metric_options={k: v[0] for k, v in ATTRIBUTE_CONFIG.items()},
+        chart_type=chart_type,
+        comunas_catalogo=COMUNAS,
+    )
+
+
+@app.route("/cosam/reportes/pdf", methods=["GET"])
+@login_required([UserRole.cosam])
+def cosam_reportes_pdf():
+    """
+    Genera un PDF descargable con el resumen del reporte COSAM
+    (mismos filtros que la vista HTML).
+    """
+    data = _build_cosam_report()
+    # Métricas y tipo de gráfico seleccionados en la UI
+    chart_type = (request.args.get("chart_type") or "bar").strip() or "bar"
+    if chart_type not in {"bar", "line", "pie"}:
+        chart_type = "bar"
+    metric_keys = _parse_metric_keys(request.args, chart_type=chart_type)
+    filtros = data["filtros"]
+    totales = data["totales"]
+    comunas = data["comunas"]
+    patologias = data["patologias"]
+    labels, values, dataset_title, datasets = _build_metric_dataset(data["filas"], metric_keys, chart_type)
+
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    w, h = A4
+    margin_left = 42
+    bottom_margin = 60
+    y = h - 50
+
+    def ensure_space(current_y: float, needed: float = 40) -> float:
+        if current_y - needed < bottom_margin:
+            c.showPage()
+            return h - 50
+        return current_y
+
+    def draw_paragraph(title: str, lines: List[str], indent: int = 12) -> None:
+        nonlocal y
+        height = 18 + 14 * len(lines)
+        y = ensure_space(y, height)
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(margin_left, y, title)
+        y -= 16
+        c.setFont("Helvetica", 10)
+        for line in lines:
+            c.drawString(margin_left + indent, y, line)
+            y -= 14
+
+    def draw_table(title: str, headers: List[str], rows: List[List[str]], widths: List[int]) -> None:
+        nonlocal y
+        height = 20 + 12 * (len(rows) + 1)
+        y = ensure_space(y, height)
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(margin_left, y, title)
+        y -= 18
+        c.setFont("Helvetica-Bold", 9)
+        x = margin_left
+        for head, width in zip(headers, widths):
+            c.drawString(x, y, head)
+            x += width
+        y -= 12
+        c.setFont("Helvetica", 9)
+        for row in rows:
+            x = margin_left
+            for idx, (cell, width) in enumerate(zip(row, widths)):
+                if idx == 0:
+                    c.drawString(x, y, cell)
+                else:
+                    c.drawRightString(x + width - 10, y, cell)
+                x += width
+            y -= 12
+
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(margin_left, y, "Reporte COSAM - Derivaciones")
+    y -= 28
+    c.setFont("Helvetica", 10)
+    c.drawString(margin_left, y, f"Generado el: {datetime.utcnow():%d/%m/%Y %H:%M}")
+    y -= 24
+
+    draw_paragraph(
+        "Filtros aplicados",
+        [
+            f"Fecha desde: {filtros.get('desde') or 'Todas'}",
+            f"Fecha hasta: {filtros.get('hasta') or 'Todas'}",
+        ],
+    )
+    draw_paragraph(
+        "Totales",
+        [
+            f"Total de casos: {totales.get('total', 0)}",
+            f"Casos GES: {totales.get('ges', 0)}",
+            f"Casos no GES: {totales.get('no_ges', 0)}",
+        ],
+    )
+
+    tabla_comunas = [
+        [str(comuna), str(stats.get("total", 0)), str(stats.get("ges", 0)), str(stats.get("no_ges", 0))]
+        for comuna, stats in comunas
+    ]
+    draw_table("Casos por comuna", ["Comuna", "Total", "GES", "No GES"], tabla_comunas, [150, 80, 70, 70])
+
+    tabla_patologias = [[str(nombre), str(cantidad)] for nombre, cantidad in patologias]
+    draw_table("Patologías GES", ["Patología", "Casos"], tabla_patologias, [260, 80])
+
+    all_values = [val for dataset in (datasets or []) for val in dataset.get("data", [])]
+    if chart_type == "pie":
+        all_values = values
+    if labels and all_values and max(all_values) > 0:
+        c.showPage()
+        y = h - 60
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(margin_left, y, f"Gráfico principal: {dataset_title}")
+        y -= 30
+
+        left = margin_left
+        bottom = 90
+        chart_width = w - (margin_left * 2) - 140
+        chart_height = h - 200
+
+        base_colors = [
+            (0.145, 0.388, 0.921),
+            (0.086, 0.639, 0.290),
+            (0.976, 0.451, 0.086),
+            (0.863, 0.149, 0.149),
+            (0.486, 0.227, 0.933),
+            (0.051, 0.580, 0.533),
+            (0.918, 0.702, 0.047),
+            (0.925, 0.286, 0.600),
+            (0.033, 0.569, 0.698),
+            (0.294, 0.333, 0.388),
+        ]
+
+        def pick_color(idx: int) -> Tuple[float, float, float]:
+            return base_colors[idx % len(base_colors)]
+
+        legend_entries: List[Tuple[Tuple[float, float, float], str]] = []
+
+        if chart_type == "pie":
+            total_val = sum(values) or 1
+            radius = min(chart_width, chart_height) * 0.4
+            cx = left + radius + 30
+            cy = bottom + chart_height / 2
+            start_angle = 0.0
+            for idx, (label, val) in enumerate(zip(labels, values)):
+                extent = 360.0 * (val / total_val)
+                r, g, b = pick_color(idx)
+                c.setFillColorRGB(r, g, b)
+                c.wedge(
+                    cx - radius,
+                    cy - radius,
+                    cx + radius,
+                    cy + radius,
+                    start_angle,
+                    extent,
+                    stroke=0,
+                    fill=1,
+                )
+                legend_entries.append(((r, g, b), f"{label}: {val}"))
+                start_angle += extent
+        elif chart_type == "line":
+            datasets_to_draw = datasets or [{"label": dataset_title, "data": values}]
+            max_val = max(all_values) or 1
+            count = len(labels)
+            c.setStrokeColorRGB(0, 0, 0)
+            c.line(left, bottom, left, bottom + chart_height)
+            c.line(left, bottom, left + chart_width, bottom)
+            step = chart_width / max(count - 1, 1)
+            c.setFont("Helvetica", 8)
+            for idx_label, label in enumerate(labels):
+                c.drawString(left + step * idx_label - 10, bottom - 12, str(label))
+            for idx_ds, dataset in enumerate(datasets_to_draw):
+                r, g, b = pick_color(idx_ds)
+                legend_entries.append(((r, g, b), dataset.get("label") or f"Serie {idx_ds+1}"))
+                points = []
+                for idx_label in range(len(labels)):
+                    val = dataset.get("data", [])
+                    value = val[idx_label] if idx_label < len(val) else 0
+                    x_point = left + step * idx_label
+                    y_point = bottom + (value / max_val) * chart_height
+                    points.append((x_point, y_point, value))
+                c.setStrokeColorRGB(r, g, b)
+                for i in range(1, len(points)):
+                    c.line(points[i - 1][0], points[i - 1][1], points[i][0], points[i][1])
+                for (x_point, y_point, value) in points:
+                    c.setFillColorRGB(r, g, b)
+                    c.circle(x_point, y_point, 2.2, fill=1, stroke=0)
+                    c.setFillColorRGB(0, 0, 0)
+                    c.drawString(x_point + 2, y_point + 2, str(int(value)))
+        else:
+            datasets_to_draw = datasets or [{"label": dataset_title, "data": values}]
+            max_val = max(all_values) or 1
+            label_count = len(labels)
+            series_count = max(1, len(datasets_to_draw))
+            group_spacing = 6
+            available_width = chart_width - group_spacing * (label_count + 1)
+            group_width = available_width / max(label_count, 1)
+            inner_spacing = 2
+            bar_width = max(4, (group_width - inner_spacing * (series_count - 1)) / max(series_count, 1))
+            c.setStrokeColorRGB(0, 0, 0)
+            c.line(left, bottom, left, bottom + chart_height)
+            c.line(left, bottom, left + chart_width, bottom)
+            c.setFont("Helvetica", 8)
+            for idx_label, label in enumerate(labels):
+                group_x = left + group_spacing + idx_label * (group_width + group_spacing)
+                c.drawString(group_x, bottom - 12, str(label)[:18])
+                for idx_ds, dataset in enumerate(datasets_to_draw):
+                    vals = dataset.get("data", [])
+                    value = vals[idx_label] if idx_label < len(vals) else 0
+                    height_bar = (value / max_val) * chart_height if max_val else 0
+                    x = group_x + idx_ds * (bar_width + inner_spacing)
+                    r, g, b = pick_color(idx_ds)
+                    c.setFillColorRGB(r, g, b)
+                    c.rect(x, bottom, bar_width, height_bar, fill=1, stroke=0)
+                    c.setFillColorRGB(0, 0, 0)
+                    c.drawString(x, bottom + height_bar + 2, str(int(value)))
+            legend_entries = [
+                (pick_color(i), datasets_to_draw[i].get("label") or f"Serie {i+1}")
+                for i in range(series_count)
+            ]
+
+        if legend_entries:
+            legend_x = left + chart_width + 20
+            legend_y = bottom + chart_height
+            c.setFont("Helvetica", 9)
+            for color, text in legend_entries:
+                if legend_y < bottom + 20:
+                    legend_y = bottom + chart_height
+                    legend_x += 140
+                r, g, b = color
+                c.setFillColorRGB(r, g, b)
+                c.rect(legend_x, legend_y - 8, 10, 10, fill=1, stroke=0)
+                c.setFillColorRGB(0, 0, 0)
+                short_text = text if len(text) < 32 else text[:31] + "…"
+                c.drawString(legend_x + 14, legend_y - 5, short_text)
+                legend_y -= 14
+
+    c.save()
+    buf.seek(0)
+
+    from flask import send_file
+
+    filename = "reporte_cosam.pdf"
+    return send_file(buf, as_attachment=True, download_name=filename, mimetype="application/pdf")
+
 def _limpiar_rut(rut: str) -> str:
     return "".join(ch for ch in rut if ch.isdigit() or ch in {"K", "k"})
 
@@ -910,8 +1621,12 @@ def _calcular_edad(fecha_nacimiento: str) -> str:
 
 def _extraer_datos_formulario(form_data) -> Dict[str, Optional[str]]:
     datos = {campo: form_data.get(campo) or "" for campo in FORM_FIELDS}
-    patologias = form_data.getlist("patologias_ges")
-    datos["patologias_ges"] = ";".join(patologias)
+    patologias = [
+        (item or "").strip()
+        for item in form_data.getlist("patologias_ges")
+        if (item or "").strip()
+    ]
+    datos["patologias_ges"] = ";".join(patologias[:3])
     datos["edad"] = _calcular_edad(datos.get("fecha_nacimiento", ""))
     tipo_consulta = form_data.get("tipo_consulta") or ""
     detalle_otro = form_data.get("tipo_consulta_otro", "").strip()
@@ -1058,6 +1773,15 @@ def formulario():
                     # Derivación de vuelta al establecimiento origen
                     "establecimiento_derivacion": src.establecimiento or "",
                 })
+    except Exception:
+        pass
+    try:
+        user = getattr(g, "current_user", None)
+        if user:
+            if not valores_iniciales.get("nombre_medico"):
+                valores_iniciales["nombre_medico"] = getattr(user, "doctor_name", "") or ""
+            if not valores_iniciales.get("rut_medico"):
+                valores_iniciales["rut_medico"] = getattr(user, "doctor_rut", "") or ""
     except Exception:
         pass
     return render_template(
@@ -1210,19 +1934,6 @@ def inject_globals():
 
 _db_initialized = False
 
-
-@app.before_request
-def inicializar_db():
-    global _db_initialized
-    if not _db_initialized:
-        db.create_all()
-        _db_initialized = True
-
-
-
-
-# -------------------- JWT (Ed25519) y CSRF --------------------
-
 _AUTH_COOKIE = "ssmo_auth"
 
 
@@ -1357,6 +2068,10 @@ def _security_and_csrf():
             cur.execute("PRAGMA table_info('users')"); cols = [r[1] for r in cur.fetchall()]
             if 'is_master_admin' not in cols:
                 cur.execute("ALTER TABLE users ADD COLUMN is_master_admin BOOLEAN NOT NULL DEFAULT 0")
+            if 'doctor_name' not in cols:
+                cur.execute("ALTER TABLE users ADD COLUMN doctor_name VARCHAR(160)")
+            if 'doctor_rut' not in cols:
+                cur.execute("ALTER TABLE users ADD COLUMN doctor_rut VARCHAR(20)")
             conn.commit(); conn.close()
         except Exception:
             pass
@@ -1409,6 +2124,174 @@ def _inject_auth_ctx():
 
 def _is_valid_email(email: str) -> bool:
     return bool(re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$", (email or "").strip(), re.IGNORECASE))
+
+
+# -------------------- Reportes dinámicos --------------------
+
+def _form_es_ges(form: MedicalForm) -> bool:
+    if getattr(form, "patologias_ges", None):
+        try:
+            if form.patologias_ges_lista():
+                return True
+        except Exception:
+            if (form.patologias_ges or "").strip():
+                return True
+    valor = (getattr(form, "es_ges", "") or "").strip().lower()
+    return valor in {"si", "sí", "s?"}
+
+
+def _age_bucket(value: Optional[str]) -> str:
+    try:
+        edad_int = int(value or "")
+    except Exception:
+        return "Sin dato"
+    if edad_int < 15:
+        return "< 15"
+    if edad_int < 25:
+        return "15-24"
+    if edad_int < 45:
+        return "25-44"
+    if edad_int < 65:
+        return "45-64"
+    return "65+"
+
+
+ATTRIBUTE_CONFIG: Dict[str, Tuple[str, Callable[[MedicalForm, Case], str]]] = {
+    "comuna": (
+        "Comuna",
+        lambda f, c: (f.comuna or "Sin comuna").strip() or "Sin comuna",
+    ),
+    "sexo": (
+        "Sexo",
+        lambda f, c: (f.sexo or "Sin dato").strip() or "Sin dato",
+    ),
+    "edad_tramo": (
+        "Tramo de edad",
+        lambda f, c: _age_bucket(f.edad),
+    ),
+    "es_ges": (
+        "GES / No GES",
+        lambda f, c: "GES" if _form_es_ges(f) else "No GES",
+    ),
+    "tipo_consulta": (
+        "Tipo de consulta",
+        lambda f, c: (f.tipo_consulta or "Sin dato").strip() or "Sin dato",
+    ),
+    "patologia_ges": (
+        "Patología GES",
+        lambda f, c: (f.patologias_ges_lista() or ["Sin patología GES"])[0],
+    ),
+}
+
+
+def _parse_metric_keys(params: Mapping[str, Any], chart_type: Optional[str] = None) -> List[str]:
+    keys: List[str] = []
+    for idx, name in enumerate(("metric", "metric2", "metric3")):
+        raw = params.get(name)
+        val = (raw or "").strip() if isinstance(raw, str) else ""
+        if val and val in ATTRIBUTE_CONFIG and val not in keys:
+            keys.append(val)
+    if not keys:
+        keys = ["comuna"]
+    if chart_type == "pie":
+        return keys[:1]
+    if chart_type == "bar":
+        return keys[:2]
+    if chart_type == "line":
+        return keys[:1]
+    return keys
+
+
+def _build_metric_dataset(
+    filas: List[Tuple[MedicalForm, Case]],
+    metric_keys: List[str],
+    chart_type: str,
+) -> Tuple[List[str], List[int], str, List[Dict[str, Any]]]:
+    from collections import defaultdict
+
+    def _get_conf(key: str) -> Tuple[str, Callable[[MedicalForm, Case], str]]:
+        return ATTRIBUTE_CONFIG.get(key, (key, lambda *_: "Sin dato"))
+
+    if chart_type == "line":
+        metric_key = metric_keys[0] if metric_keys else "comuna"
+        axis_label, extractor = _get_conf(metric_key)
+        timeline_counts: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        periods: set[str] = set()
+        for form, case in filas:
+            try:
+                period = (form.created_at or datetime.utcnow()).strftime("%Y-%m")
+            except Exception:
+                period = "Sin fecha"
+            try:
+                category = extractor(form, case)
+            except Exception:
+                category = "Sin dato"
+            periods.add(period)
+            timeline_counts[category][period] += 1
+        labels = sorted(periods)
+        datasets = []
+        for category, mapping in sorted(timeline_counts.items(), key=lambda item: item[0]):
+            datasets.append({
+                "label": category,
+                "data": [mapping.get(period, 0) for period in labels],
+            })
+        values = [sum(dataset["data"][idx] for dataset in datasets) for idx in range(len(labels))] if datasets else []
+        title = f"Evolución mensual por {axis_label}"
+        return labels, values, title, datasets
+
+    if chart_type == "bar" and len(metric_keys) >= 2:
+        key_x, key_group = metric_keys[:2]
+        axis_x, fn_x = _get_conf(key_x)
+        axis_group, fn_group = _get_conf(key_group)
+        counts: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        x_values: set[str] = set()
+        groups: set[str] = set()
+        for form, case in filas:
+            try:
+                x_val = fn_x(form, case)
+            except Exception:
+                x_val = "Sin dato"
+            try:
+                group_val = fn_group(form, case)
+            except Exception:
+                group_val = "Sin dato"
+            counts[x_val][group_val] += 1
+            x_values.add(x_val)
+            groups.add(group_val)
+        labels = sorted(x_values)
+        group_list = sorted(groups)
+        datasets = []
+        for group in group_list:
+            datasets.append({
+                "label": group,
+                "data": [counts[label].get(group, 0) for label in labels],
+            })
+        values = [sum(dataset["data"][idx] for dataset in datasets) for idx in range(len(labels))] if datasets else []
+        title = f"Casos por {axis_x} y {axis_group}"
+        return labels, values, title, datasets
+
+    counts: Dict[str, int] = defaultdict(int)
+    axis_names = [ATTRIBUTE_CONFIG[key][0] for key in metric_keys if key in ATTRIBUTE_CONFIG]
+    if not axis_names:
+        axis_names = [ATTRIBUTE_CONFIG["comuna"][0]]
+    for form, case in filas:
+        parts: List[str] = []
+        for key in metric_keys:
+            label, extractor = _get_conf(key)
+            try:
+                parts.append(extractor(form, case))
+            except Exception:
+                parts.append("Sin dato")
+        if not parts:
+            continue
+        label = " | ".join(parts)
+        counts[label] += 1
+
+    labels = sorted(counts.keys())
+    values = [counts[lbl] for lbl in labels]
+    datasets = [{"label": "Casos", "data": values}]
+    title = "Casos por " + " y ".join(axis_names)
+    return labels, values, title, datasets
 
 
 if __name__ == "__main__":

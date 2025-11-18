@@ -284,7 +284,94 @@
     DER_PRE,
   );
 
+  // --- Selecciones dinámicas de Patologías GES (máx 3) ---
+  const gesContainer = document.querySelector('[data-ges-container]');
+  if (gesContainer) {
+    const limit = Number.parseInt(gesContainer.dataset.gesMax || '3', 10);
+    const templateItem = gesContainer.querySelector('[data-ges-item]');
+    const getSelects = () => Array.from(gesContainer.querySelectorAll('select[name="patologias_ges"]'));
+
+    const parseSeleccionadas = () => {
+      const raw = gesContainer.dataset.gesSelected || '[]';
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .filter((item) => typeof item === 'string' && item.trim())
+            .slice(0, Number.isNaN(limit) ? 3 : limit);
+        }
+      } catch (_err) {
+        // Ignorar errores de parseo y continuar con lista vacía
+      }
+      return [];
+    };
+
+    const pruneEmptySelects = () => {
+      const selects = getSelects();
+      let blanksAllowed = 1;
+      selects.forEach((select) => {
+        if (!select.value.trim()) {
+          if (blanksAllowed > 0) {
+            blanksAllowed -= 1;
+          } else {
+            const wrapper = select.closest('[data-ges-item]');
+            if (wrapper && wrapper !== templateItem) {
+              wrapper.remove();
+            }
+          }
+        }
+      });
+    };
+
+    const handleSelectChange = () => {
+      pruneEmptySelects();
+      ensureEmptySlot();
+    };
+
+    const attachListener = (select) => {
+      if (select) {
+        select.addEventListener('change', handleSelectChange);
+      }
+    };
+
+    const createSelect = (valor = '') => {
+      if (!templateItem) return null;
+      const nuevo = templateItem.cloneNode(true);
+      const select = nuevo.querySelector('select[name="patologias_ges"]');
+      if (select) {
+        select.value = valor;
+        attachListener(select);
+      }
+      gesContainer.appendChild(nuevo);
+      return select;
+    };
+
+    const ensureEmptySlot = () => {
+      const selects = getSelects();
+      const limite = Number.isNaN(limit) ? 3 : limit;
+      const hasEmpty = selects.some((select) => !select.value.trim());
+      if (!hasEmpty && selects.length < limite) {
+        createSelect('');
+      }
+    };
+
+    const initGesSelects = () => {
+      if (!templateItem) return;
+      const firstSelect = templateItem.querySelector('select[name="patologias_ges"]');
+      attachListener(firstSelect);
+      const valores = parseSeleccionadas();
+      if (firstSelect && valores.length > 0) {
+        firstSelect.value = valores[0];
+      }
+      for (let i = 1; i < valores.length; i += 1) {
+        createSelect(valores[i]);
+      }
+      ensureEmptySlot();
+    };
+
+    initGesSelects();
+  }
+
 
   // INDICADOR
 });
-

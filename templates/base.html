@@ -27,16 +27,13 @@
               <a class="btn" href="{{ url_for('formulario') }}">Nuevo formulario</a>
               <a class="btn" href="{{ url_for('centro_inbox') }}">Centro bandeja</a>
             {% elif u.role == 'cosam' %}
-              <a class="btn" href="{{ url_for('formulario') }}">Nuevo formulario</a>
               <a class="btn" href="{{ url_for('cosam_inbox') }}">COSAM bandeja</a>
               <a class="btn" href="{{ url_for('cosam_pacientes') }}">Pacientes</a>
               <a class="btn" href="{{ url_for('cosam_agenda') }}">Agenda</a>
+              <a class="btn" href="{{ url_for('cosam_reportes') }}">Reportes</a>
             {% elif u.role == 'admin' %}
               <a class="btn" href="{{ url_for('admin_users') }}">Admin usuarios</a>
               <a class="btn" href="{{ url_for('admin_ges') }}">GES</a>
-            {% endif %}
-            {% if u.role == 'cosam' %}
-              <a class="btn" href="{{ url_for('listar_formularios') }}">Formularios guardados</a>
             {% endif %}
             <span class="user-badge">{{ u.username }} ({{ u.role }})</span>
             {% if u.role == 'admin' and u.is_master_admin %}

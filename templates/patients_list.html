@@ -30,15 +30,23 @@
               <td>{{ f.nombre }}</td>
               <td>{{ f.rut or '-' }}</td>
               <td>{{ f.especialidad or '-' }}</td>
-              <td>
-                <a class="secondary" href="{{ url_for('ver_formulario', form_id=f.id) }}">Ver</a>
+              <td class="cell-actions">
+                <div class="actions-buttons">
+                  <a class="secondary" href="{{ url_for('ver_formulario', form_id=f.id) }}">Ver</a>
+                  {% if ap %}
+                    <a class="secondary" href="{{ url_for('cosam_reschedule', case_id=c.id) }}">Reagendar</a>
+                  {% else %}
+                    <a class="primary" href="{{ url_for('cosam_schedule', case_id=c.id) }}">Agendar</a>
+                  {% endif %}
+                  <a class="secondary" href="{{ url_for('formulario', prefill_from=f.id) }}">Reenviar</a>
+                </div>
                 {% if ap %}
-                  <span class="user-badge">Agendado: {{ ap.scheduled_at.strftime('%d/%m/%Y %H:%M') }}</span>
-                  <a class="secondary" href="{{ url_for('cosam_reschedule', case_id=c.id) }}">Reagendar</a>
-                {% else %}
-                  <a class="primary" href="{{ url_for('cosam_schedule', case_id=c.id) }}">Agendar</a>
+                  <div class="actions-info">
+                    <span class="user-badge">
+                      Agendado: {{ ap.scheduled_at.strftime('%d/%m/%Y %H:%M') }} — {{ ap.doctor or 'Sin médico' }} / {{ ap.place or '-' }}
+                    </span>
+                  </div>
                 {% endif %}
-                <a class="secondary" href="{{ url_for('formulario', prefill_from=f.id) }}">Reenviar</a>
               </td>
             </tr>
           {% endfor %}

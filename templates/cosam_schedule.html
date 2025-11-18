@@ -10,19 +10,38 @@
     <div class="field-grid">
       <label>
         <span>Fecha</span>
-        <input type="date" name="date" required />
+        <input type="date" name="date" value="{{ form_values.date }}" required />
       </label>
       <label>
         <span>Hora</span>
-        <input type="time" name="time" required />
+        <select name="time" required>
+          <option value="" disabled {% if not form_values.time %}selected{% endif %}>Seleccione un bloque</option>
+          {% for slot in time_slots %}
+            <option value="{{ slot }}" {% if form_values.time == slot %}selected{% endif %}>{{ slot }}</option>
+          {% endfor %}
+        </select>
       </label>
-      <label class="wide">
-        <span>Lugar</span>
-        <input type="text" name="place" />
+      <label>
+        <span>Médico</span>
+        <select name="doctor" required>
+          <option value="" disabled {% if not form_values.doctor %}selected{% endif %}>Seleccione un médico</option>
+          {% for doctor in doctor_choices %}
+            <option value="{{ doctor }}" {% if form_values.doctor == doctor %}selected{% endif %}>{{ doctor }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Box de atención</span>
+        <select name="place" required>
+          <option value="" disabled {% if not form_values.place %}selected{% endif %}>Seleccione un box</option>
+          {% for place in place_choices %}
+            <option value="{{ place }}" {% if form_values.place == place %}selected{% endif %}>{{ place }}</option>
+          {% endfor %}
+        </select>
       </label>
       <label class="wide">
         <span>Notas</span>
-        <textarea name="notes" rows="3"></textarea>
+        <textarea name="notes" rows="3">{{ form_values.notes }}</textarea>
       </label>
     </div>
     <div class="actions">

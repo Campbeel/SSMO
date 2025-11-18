@@ -213,21 +213,49 @@
     </section>
 
     <section>
-          <section>
       <h3>Patologías GES</h3>
       <p class="section-description">Seleccione la patología si corresponde; deje sin selección si no aplica.</p>
-      {% set seleccionada = (campos.patologias_ges.split(';')[0]) if campos.patologias_ges else '' %}
-      <div class="field-grid">
-        <label class="wide">
-          <span>Patología GES</span>
-          <select name="patologias_ges">
-            <option value="" {% if not seleccionada %}selected{% endif %}>Sin selección</option>
-            {% for patologia in patologias_catalogo %}
-              <option value="{{ patologia }}" {% if seleccionada == patologia %}selected{% endif %}>{{ patologia }}</option>
-            {% endfor %}
-          </select>
-        </label>
-      </div>
+      {% set patologias_raw = campos.patologias_ges.split(';') if campos.patologias_ges else [] %}
+      {% set patologias_seleccionadas = [] %}
+      {% for pat in patologias_raw %}
+        {% set valor = pat.strip() %}
+        {% if valor %}
+          {% set patologias_seleccionadas = patologias_seleccionadas + [valor] %}
+        {% endif %}
+      {% endfor %}
+      {% set patologias_seleccionadas = patologias_seleccionadas[:3] %}
+      {% set seleccionada = patologias_seleccionadas[0] if patologias_seleccionadas else '' %}
+      {% set usuario_actual = g.current_user or current_user %}
+      {% if usuario_actual and usuario_actual.role == 'centro' %}
+        <div class="field-grid">
+          <label class="wide">
+            <span>Patologías GES</span>
+            <div class="ges-selects" data-ges-container data-ges-max="3" data-ges-selected="{{ patologias_seleccionadas | tojson }}">
+              <div class="ges-select" data-ges-item>
+                <select name="patologias_ges">
+                  <option value="" {% if not seleccionada %}selected{% endif %}>Sin selección</option>
+                  {% for patologia in patologias_catalogo %}
+                    <option value="{{ patologia }}" {% if seleccionada == patologia %}selected{% endif %}>{{ patologia }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+            <small class="field-note">Puede seleccionar hasta 3 patologías GES.</small>
+          </label>
+        </div>
+      {% else %}
+        <div class="field-grid">
+          <label class="wide">
+            <span>Patología GES</span>
+            <select name="patologias_ges">
+              <option value="" {% if not seleccionada %}selected{% endif %}>Sin selección</option>
+              {% for patologia in patologias_catalogo %}
+                <option value="{{ patologia }}" {% if seleccionada == patologia %}selected{% endif %}>{{ patologia }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+      {% endif %}
     </section> 
 
     <section>

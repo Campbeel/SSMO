@@ -3,8 +3,9 @@
 {% block title %}Editar usuario - SSMO{% endblock %}
 
 {% block content %}
+  {% set doctor_enabled = user.doctor_name and user.role in doctor_roles %}
   <h2>Editar usuario</h2>
-  <form method="post" class="formulario">
+  <form method="post" class="formulario" id="user-edit-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
     <div class="field-grid">
       <label>
@@ -29,6 +30,23 @@
         <input type="checkbox" name="is_master_admin" {% if user.is_master_admin %}checked{% endif %} />
       </label>
       {% endif %}
+      <label class="toggle-field doctor-toggle" data-doctor-toggle>
+        <span>Ingresar datos médico</span>
+        <span class="toggle-switch">
+          <input type="checkbox" name="doctor_info" {% if doctor_enabled %}checked{% endif %} />
+          <span class="slider"></span>
+        </span>
+      </label>
+      <div class="doctor-fields{% if doctor_enabled %} active{% endif %}">
+        <label>
+          <span>Nombre del médico</span>
+          <input type="text" name="doctor_name" value="{{ user.doctor_name or '' }}" />
+        </label>
+        <label>
+          <span>RUT del médico</span>
+          <input type="text" name="doctor_rut" value="{{ user.doctor_rut or '' }}" placeholder="12.345.678-9" />
+        </label>
+      </div>
       <label>
         <span>Nueva contraseña (opcional)</span>
         <input type="password" name="password" minlength="8" />
@@ -39,5 +57,37 @@
       <a class="secondary" href="{{ url_for('admin_users') }}">Volver</a>
     </div>
   </form>
+  <script>
+    (function () {
+      const doctorRoles = {{ doctor_roles|tojson }};
+      const form = document.getElementById("user-edit-form");
+      if (!form) return;
+      const roleSelect = form.querySelector('select[name="role"]');
+      const toggleRow = form.querySelector('[data-doctor-toggle]');
+      const doctorCheckbox = form.querySelector('input[name="doctor_info"]');
+      const doctorFields = form.querySelector('.doctor-fields');
+      function applyDoctorState() {
+        const enabledRole = roleSelect && doctorRoles.includes(roleSelect.value);
+        if (toggleRow) {
+          toggleRow.style.display = enabledRole ? "flex" : "none";
+        }
+        if (!enabledRole) {
+          doctorCheckbox.checked = false;
+        }
+        if (doctorFields) {
+          if (doctorCheckbox.checked && enabledRole) {
+            doctorFields.classList.add("active");
+          } else {
+            doctorFields.classList.remove("active");
+          }
+        }
+      }
+      if (roleSelect && doctorCheckbox) {
+        roleSelect.addEventListener("change", applyDoctorState);
+        doctorCheckbox.addEventListener("change", applyDoctorState);
+      }
+      applyDoctorState();
+    })();
+  </script>
 {% endblock %}
 

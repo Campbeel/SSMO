@@ -1,0 +1,292 @@
+﻿{% extends 'base.html' %}
+
+{% block title %}COSAM - Reportes{% endblock %}
+
+{% block content %}
+  <section class="entries">
+    <header class="entries-header">
+      <div>
+        <h2>Reportes COSAM</h2>
+        <p>Resumen de fichas derivadas al COSAM, con filtros y visualización dinámica.</p>
+      </div>
+      {% if totales.total > 0 %}
+        <a class="secondary"
+           href="{{ url_for('cosam_reportes_pdf',
+                            desde=filtros.desde,
+                            hasta=filtros.hasta,
+                            chart_type=chart_type,
+                            metric=metric_keys[0] if metric_keys|length > 0 else None,
+                            metric2=metric_keys[1] if metric_keys|length > 1 else None,
+                            metric3=metric_keys[2] if metric_keys|length > 2 else None) }}">
+          Descargar PDF
+        </a>
+      {% endif %}
+    </header>
+
+    <form method="get" class="formulario" style="margin-bottom: 1.5rem;">
+      <section>
+        <h3>Filtros</h3>
+        <div class="field-grid">
+          <label>
+            <span>Fecha desde</span>
+            <input type="date" name="desde" value="{{ filtros.desde }}">
+          </label>
+          <label>
+            <span>Fecha hasta</span>
+            <input type="date" name="hasta" value="{{ filtros.hasta }}">
+          </label>
+          <div id="metric-selects"
+               class="metric-selects"
+               data-options='{{ metric_options | tojson }}'
+               data-selected='{{ metric_keys | tojson }}'>
+          </div>
+          <!-- El tipo de gráfico se controla fuera de los filtros de datos -->
+        </div>
+      </section>
+      <div class="actions" style="margin-top: 1rem;">
+        <button type="submit" class="primary">Aplicar filtros</button>
+      </div>
+    </form>
+
+    {% if totales.total > 0 %}
+      <section class="summary-section report-chart-section">
+        <div class="report-chart-header">
+          <h3>Visualización</h3>
+          <label class="chart-type-select">
+            <span>Tipo de gráfico</span>
+            <select id="chart-type-select">
+              <option value="bar" {% if chart_type == 'bar' %}selected{% endif %}>Barras</option>
+              <option value="line" {% if chart_type == 'line' %}selected{% endif %}>Líneas</option>
+              <option value="pie" {% if chart_type == 'pie' %}selected{% endif %}>Pie</option>
+            </select>
+          </label>
+        </div>
+        <div class="report-chart-wrapper">
+          <canvas id="chart-main" height="260"></canvas>
+        </div>
+      </section>
+
+      <section class="summary-section">
+        <h3>Casos por comuna de residencia</h3>
+        <table class="entries-table">
+          <thead>
+            <tr>
+              <th>Comuna</th>
+              <th>Total</th>
+              <th>GES</th>
+              <th>No GES</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for comuna, stats in comunas %}
+              <tr>
+                <td>{{ comuna }}</td>
+                <td>{{ stats.total }}</td>
+                <td>{{ stats.ges }}</td>
+                <td>{{ stats.no_ges }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+
+      <section class="summary-section">
+        <h3>Patologías GES</h3>
+        {% if patologias %}
+          <table class="entries-table">
+            <thead>
+              <tr>
+                <th>Patología</th>
+                <th>Cantidad de casos</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for nombre, cantidad in patologias %}
+                <tr>
+                  <td>{{ nombre }}</td>
+                  <td>{{ cantidad }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="empty-state">No hay casos GES en el período seleccionado.</p>
+        {% endif %}
+      </section>
+    {% endif %}
+  </section>
+
+  <script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+    const chartType = {{ chart_type | tojson }};
+    const labels = {{ current["labels"] | tojson }};
+    const values = {{ current["values"] | tojson }};
+    const title = {{ current["title"] | tojson }} || 'Casos';
+    const datasetsRaw = {{ current["datasets"] | tojson }};
+
+    const buildPalette = (n) => {
+      const base = ['#2563eb', '#16a34a', '#f97316', '#dc2626', '#7c3aed', '#0d9488', '#eab308', '#ec4899', '#0891b2', '#4b5563'];
+      const colors = [];
+      for (let i = 0; i < n; i += 1) {
+        colors.push(base[i % base.length]);
+      }
+      return colors;
+    };
+
+    const hexToRgba = (hex, alpha = 0.85) => {
+      const clean = hex.replace('#', '');
+      const bigint = parseInt(clean, 16);
+      const r = (bigint >> 16) & 255;
+      const g = (bigint >> 8) & 255;
+      const b = bigint & 255;
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    };
+
+    const ctx = document.getElementById('chart-main');
+    if (ctx && labels.length) {
+      const kind = ['bar', 'line', 'pie'].includes(chartType) ? chartType : 'bar';
+      const palette = buildPalette(Math.max(labels.length, datasetsRaw.length || 1));
+      const baseDatasets = (datasetsRaw && datasetsRaw.length)
+        ? datasetsRaw
+        : [{ label: title, data: values }];
+      const datasets = baseDatasets.map((ds, idx) => {
+        const color = palette[idx % palette.length];
+        const dataset = {
+          label: ds.label || `${title} (${idx + 1})`,
+          data: ds.data || [],
+        };
+        if (kind === 'pie') {
+          const slices = buildPalette(dataset.data.length || labels.length);
+          dataset.backgroundColor = slices;
+          dataset.borderColor = slices;
+          dataset.borderWidth = 1;
+        } else if (kind === 'line') {
+          dataset.borderColor = color;
+          dataset.backgroundColor = hexToRgba(color, 0.15);
+          dataset.pointBackgroundColor = color;
+          dataset.tension = 0.25;
+          dataset.fill = false;
+        } else {
+          dataset.backgroundColor = hexToRgba(color, 0.8);
+          dataset.borderColor = color;
+          dataset.borderWidth = 1;
+        }
+        return dataset;
+      });
+      const config = {
+        type: kind,
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { position: kind === 'pie' ? 'bottom' : 'top' },
+            title: { display: true, text: title },
+          },
+        },
+      };
+      if (kind !== 'pie') {
+        config.options.scales = { y: { beginAtZero: true, ticks: { precision: 0 } } };
+      }
+      new Chart(ctx, config);
+    }
+
+    const refreshSingleParam = (param, value) => {
+      const url = new URL(window.location.href);
+      if (value) {
+        url.searchParams.set(param, value);
+      } else {
+        url.searchParams.delete(param);
+      }
+      window.location.href = url.toString();
+    };
+
+    const typeSelect = document.getElementById('chart-type-select');
+    const metricContainer = document.getElementById('metric-selects');
+
+    const getLimitForType = (kind) => {
+      if (kind === 'pie' || kind === 'line') return 1;
+      if (kind === 'bar') return 2;
+      return 3;
+    };
+
+    const options = metricContainer ? JSON.parse(metricContainer.dataset.options || '{}') : {};
+    const selectedInit = metricContainer ? JSON.parse(metricContainer.dataset.selected || '[]') : [];
+
+    const renderMetricSelects = (limit) => {
+      if (!metricContainer) return;
+      metricContainer.innerHTML = '';
+      const used = [];
+
+      const addSelect = (index, currentValue) => {
+        const wrapper = document.createElement('label');
+        wrapper.className = 'metric-select';
+        const span = document.createElement('span');
+        span.textContent = `Filtro ${index + 1}`;
+        const select = document.createElement('select');
+        select.dataset.metric = '1';
+        select.name = index === 0 ? 'metric' : `metric${index + 1}`;
+        const empty = document.createElement('option');
+        empty.value = '';
+        empty.textContent = '--- Seleccione ---';
+        select.appendChild(empty);
+        Object.entries(options).forEach(([key, label]) => {
+          if (used.includes(key) && key !== currentValue) return;
+          const opt = document.createElement('option');
+          opt.value = key;
+          opt.textContent = label;
+          select.appendChild(opt);
+        });
+        if (currentValue && !used.includes(currentValue)) {
+          select.value = currentValue;
+          used.push(currentValue);
+        }
+        wrapper.appendChild(span);
+        wrapper.appendChild(select);
+        metricContainer.appendChild(wrapper);
+        select.addEventListener('change', applyMetricSelection);
+      };
+
+      for (let i = 0; i < limit; i += 1) {
+        addSelect(i, selectedInit[i] || '');
+      }
+    };
+
+    const applyMetricSelection = () => {
+      const url = new URL(window.location.href);
+      const limit = getLimitForType(typeSelect ? typeSelect.value : chartType);
+      const params = ['metric', 'metric2', 'metric3'];
+      params.forEach((param) => url.searchParams.delete(param));
+      const selects = metricContainer ? metricContainer.querySelectorAll('select[data-metric]') : [];
+      selects.forEach((sel, idx) => {
+        if (idx >= limit) return;
+        if (sel.value) {
+          const name = idx === 0 ? 'metric' : `metric${idx + 1}`;
+          url.searchParams.set(name, sel.value);
+        }
+      });
+      window.location.href = url.toString();
+    };
+
+    const updateUIForType = (typeValue) => {
+      const limit = getLimitForType(typeValue);
+      renderMetricSelects(limit);
+    };
+
+    if (typeSelect) {
+      updateUIForType(typeSelect.value);
+      typeSelect.addEventListener('change', () => {
+        updateUIForType(typeSelect.value);
+        refreshSingleParam('chart_type', typeSelect.value);
+      });
+    } else if (metricContainer) {
+      updateUIForType(chartType);
+    }
+  });
+</script>
+
+
+{% endblock %}
+
+
+
