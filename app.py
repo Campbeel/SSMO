@@ -14,6 +14,7 @@ import smtplib
 import random
 from email.message import EmailMessage
 import click
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from flask import Flask, flash, redirect, render_template, request, url_for, jsonify, abort, session, make_response, g
 from flask_sqlalchemy import SQLAlchemy
@@ -37,6 +38,18 @@ app.config.update(
     SQLALCHEMY_TRACK_MODIFICATIONS=False,
 )
 app.config["DEV_SHOW_USER"] = os.environ.get("DEV_SHOW_USER", "0") in {"1", "true", "TRUE", "yes", "on"}
+# Flags de despliegue
+_https_default = "0" if os.environ.get("FLASK_ENV") == "development" or os.environ.get("FLASK_DEBUG") in {"1", "true", "True"} else "1"
+app.config["FORCE_HTTPS"] = (os.environ.get("FORCE_HTTPS", _https_default) or "").lower() in {"1", "true", "yes", "on"}
+app.config["TRUST_PROXY_HEADERS"] = (os.environ.get("TRUST_PROXY_HEADERS", "1") or "").lower() in {"1", "true", "yes", "on"}
+app.config.setdefault("SESSION_COOKIE_SAMESITE", "Strict")
+app.config.setdefault("SESSION_COOKIE_HTTPONLY", True)
+if app.config["FORCE_HTTPS"]:
+    app.config["SESSION_COOKIE_SECURE"] = True
+    app.config["PREFERRED_URL_SCHEME"] = "https"
+if app.config["TRUST_PROXY_HEADERS"]:
+    # Respeta X-Forwarded-* cuando corremos detrás de Nginx/Apache
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
 
 db = SQLAlchemy(app)
 
@@ -2033,8 +2046,9 @@ def _is_next_allowed_for_role(next_path: Optional[str], role: str) -> bool:
 
 
 def _cookie_kwargs():
-    # Para facilitar dev, solo marcamos secure si la conexión es HTTPS
-    return {"httponly": True, "secure": request.is_secure, "samesite": "Strict", "path": "/"}
+    secure_flag = bool(app.config.get("SESSION_COOKIE_SECURE")) or request.is_secure
+    samesite = app.config.get("SESSION_COOKIE_SAMESITE") or "Strict"
+    return {"httponly": True, "secure": secure_flag, "samesite": samesite, "path": "/"}
 
 
 def login_required(roles: Optional[List[UserRole]] = None):
@@ -2052,6 +2066,14 @@ def login_required(roles: Optional[List[UserRole]] = None):
             return fn(*args, **kwargs)
         return wrap
     return deco
+
+
+@app.before_request
+def _enforce_https():
+    """En producción forzamos redirección a HTTPS para activar cabeceras seguras."""
+    if app.config.get("FORCE_HTTPS") and not request.is_secure:
+        target = request.url.replace("http://", "https://", 1)
+        return redirect(target, code=301)
 
 
 _db_initialized = False
@@ -2110,6 +2132,19 @@ def _security_headers(resp):
     if request.is_secure:
         resp.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
     return resp
+
+
+@app.errorhandler(403)
+def _handle_forbidden(err):
+    # En vistas HTML redirigimos al inicio correspondiente; APIs mantienen 403
+    wants_json = request.path.startswith("/api/") or "application/json" in request.accept_mimetypes
+    if wants_json:
+        return err
+    user = getattr(g, "current_user", None) or _current_user()
+    if user:
+        flash("No tiene permisos para esa vista.", "error")
+        return redirect(_role_default_target(getattr(user, "role", "")))
+    return redirect(url_for("login", next=request.path))
 
 
 @app.context_processor
