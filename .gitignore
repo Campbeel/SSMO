@@ -2,3 +2,5 @@ __pycache__/
 *.py[cod]
 ssmo.db
 .venv/
+llaves/jwt_ed25519_private.pem
+llaves/jwt_ed25519_public.pem

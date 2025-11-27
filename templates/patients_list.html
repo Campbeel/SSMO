@@ -3,6 +3,34 @@
 {% block title %}Pacientes - COSAM{% endblock %}
 
 {% block content %}
+  <style>
+    .actions-buttons {
+      display: inline-flex;
+      gap: 0.6rem;
+      align-items: center;
+      flex-wrap: nowrap;
+      white-space: nowrap;
+    }
+    .cell-actions {
+      min-width: 280px;
+    }
+    .entries-table {
+      table-layout: auto;
+    }
+    .priority-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      text-transform: lowercase;
+    }
+    .priority-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      display: inline-block;
+      background: #9ca3af;
+    }
+  </style>
   <section class="entries">
     <header class="entries-header">
       <div>
@@ -25,14 +53,19 @@
         <tbody>
           {% for c, f, ap in casos %}
             <tr>
-              <td>{{ c.prioridad or '-' }}</td>
+              <td>
+                <span class="priority-badge" data-priority="{{ c.prioridad or '' }}">
+                  <span class="priority-dot"></span>
+                  {{ c.prioridad or '-' }}
+                </span>
+              </td>
               <td>{{ f.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
               <td>{{ f.nombre }}</td>
               <td>{{ f.rut or '-' }}</td>
               <td>{{ f.especialidad or '-' }}</td>
               <td class="cell-actions">
                 <div class="actions-buttons">
-                  <a class="secondary" href="{{ url_for('ver_formulario', form_id=f.id) }}">Ver</a>
+                  <a class="secondary" href="{{ url_for('ver_formulario', form_id=f.id, back=request.full_path) }}">Ver</a>
                   {% if ap %}
                     <a class="secondary" href="{{ url_for('cosam_reschedule', case_id=c.id) }}">Reagendar</a>
                   {% else %}
@@ -56,4 +89,20 @@
       <p class="empty-state">Sin pacientes activos.</p>
     {% endif %}
   </section>
+  <script>
+    (function () {
+      const colors = {
+        alto: '#ef4444',
+        medio: '#f59e0b',
+        bajo: '#10b981',
+      };
+      document.querySelectorAll('[data-priority]').forEach((el) => {
+        const val = (el.getAttribute('data-priority') || '').toLowerCase();
+        const dot = el.querySelector('.priority-dot');
+        if (dot) {
+          dot.style.backgroundColor = colors[val] || '#9ca3af';
+        }
+      });
+    })();
+  </script>
 {% endblock %}

@@ -3,25 +3,28 @@
 {% block title %}Admin usuarios - SSMO{% endblock %}
 
 {% block content %}
-  {% if domain_suffix %}
-    <style>
-      .domain-input {
-        display: flex;
-        align-items: center;
-        gap: 0.8rem;
-      }
-      .domain-input .suffix {
-        font-weight: 600;
-      }
-      .domain-input input {
-        flex: 1;
-      }
-    </style>
-  {% endif %}
+  <style>
+    .domain-input {
+      display: flex;
+      align-items: center;
+      gap: 1.2rem;
+    }
+    .domain-input .suffix {
+      font-weight: 600;
+    }
+    .domain-input input {
+      flex: 1;
+    }
+    .single-row {
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      align-items: end;
+      column-gap: 1.2rem;
+    }
+  </style>
   <h2>Usuarios</h2>
   <form method="post" class="formulario" id="user-create-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-    <div class="field-grid">
+    <div class="field-grid single-row">
       <label>
         <span>Correo (usuario)</span>
         {% if domain_suffix %}
@@ -47,7 +50,7 @@
         <input type="password" name="password" minlength="8" required />
       </label>
       <label class="toggle-field doctor-toggle" data-doctor-toggle>
-        <span>Ingresar datos médico</span>
+        <span>¿Es médico?</span>
         <span class="toggle-switch">
           <input type="checkbox" name="doctor_info" id="doctor-info-create" />
           <span class="slider"></span>

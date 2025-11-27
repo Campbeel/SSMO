@@ -5,7 +5,7 @@
 {% block content %}
   <h2>Ingreso de datos médicos</h2>
   <p class="section-description">
-    Complete el formulario con la información requerida. Al guardar, se generará una plantilla con los datos ingresados y el registro quedará almacenado en la base de datos.
+    Complete el formulario con la información requerida.
   </p>
 
   {% if errores %}
@@ -19,7 +19,8 @@
     </div>
   {% endif %}
 
-  <form method="post" class="formulario">`n    <input type="hidden" name="csrf_token" value="{{ session.csrf_token or csrf_token }}" />
+  <form method="post" class="formulario">
+    <input type="hidden" name="csrf_token" value="{{ session.csrf_token or csrf_token }}" />
     <!-- Bloque superior: 1) Servicio, 2) Comuna , 3) Establecimiento , 4) Especialidad -->
     <section class="admission-box">
       <h3>Admisión</h3>
@@ -31,9 +32,9 @@
         <label data-compact>
           <span>Comuna</span>
           <select name="admision_comuna" data-est-comuna>
-            <option value="" disabled selected>Seleccione una comuna</option>
+            <option value="" disabled {% if not campos.admision_comuna %}selected{% endif %}>Seleccione una comuna</option>
             {% for comuna in establecimientos_catalogo.keys() %}
-              <option value="{{ comuna }}">{{ comuna }}</option>
+              <option value="{{ comuna }}" {% if campos.admision_comuna == comuna %}selected{% endif %}>{{ comuna }}</option>
             {% endfor %}
           </select>
         </label>
@@ -140,9 +141,9 @@
         <label data-compact>
           <span>Comuna destino</span>
           <select name="derivacion_comuna" data-der-comuna>
-            <option value="" disabled selected>Seleccione una comuna</option>
+            <option value="" disabled {% if not campos.derivacion_comuna %}selected{% endif %}>Seleccione una comuna</option>
             {% for comuna in establecimientos_catalogo.keys() %}
-              <option value="{{ comuna }}">{{ comuna }}</option>
+              <option value="{{ comuna }}" {% if campos.derivacion_comuna == comuna %}selected{% endif %}>{{ comuna }}</option>
             {% endfor %}
           </select>
         </label>
@@ -154,6 +155,7 @@
         </label>
         <script>
           window.DER_PRESELECCIONADO = {{ (campos.establecimiento_derivacion or '') | tojson }};
+          window.EST_PRESELECCIONADO = {{ (campos.establecimiento or '') | tojson }};
         </script>
         <label>
           <span>Grupo poblacional específico</span>
@@ -225,37 +227,22 @@
       {% endfor %}
       {% set patologias_seleccionadas = patologias_seleccionadas[:3] %}
       {% set seleccionada = patologias_seleccionadas[0] if patologias_seleccionadas else '' %}
-      {% set usuario_actual = g.current_user or current_user %}
-      {% if usuario_actual and usuario_actual.role == 'centro' %}
-        <div class="field-grid">
-          <label class="wide">
-            <span>Patologías GES</span>
-            <div class="ges-selects" data-ges-container data-ges-max="3" data-ges-selected="{{ patologias_seleccionadas | tojson }}">
-              <div class="ges-select" data-ges-item>
-                <select name="patologias_ges">
-                  <option value="" {% if not seleccionada %}selected{% endif %}>Sin selección</option>
-                  {% for patologia in patologias_catalogo %}
-                    <option value="{{ patologia }}" {% if seleccionada == patologia %}selected{% endif %}>{{ patologia }}</option>
-                  {% endfor %}
-                </select>
-              </div>
+      <div class="field-grid">
+        <label class="wide">
+          <span>Patologías GES</span>
+          <div class="ges-selects" data-ges-container data-ges-max="3" data-ges-selected="{{ patologias_seleccionadas | tojson }}">
+            <div class="ges-select" data-ges-item>
+              <select name="patologias_ges">
+                <option value="" {% if not seleccionada %}selected{% endif %}>Sin selección</option>
+                {% for patologia in patologias_catalogo %}
+                  <option value="{{ patologia }}" {% if seleccionada == patologia %}selected{% endif %}>{{ patologia }}</option>
+                {% endfor %}
+              </select>
             </div>
-            <small class="field-note">Puede seleccionar hasta 3 patologías GES.</small>
-          </label>
-        </div>
-      {% else %}
-        <div class="field-grid">
-          <label class="wide">
-            <span>Patología GES</span>
-            <select name="patologias_ges">
-              <option value="" {% if not seleccionada %}selected{% endif %}>Sin selección</option>
-              {% for patologia in patologias_catalogo %}
-                <option value="{{ patologia }}" {% if seleccionada == patologia %}selected{% endif %}>{{ patologia }}</option>
-              {% endfor %}
-            </select>
-          </label>
-        </div>
-      {% endif %}
+          </div>
+          <small class="field-note">Puede seleccionar hasta 3 patologías GES.</small>
+        </label>
+      </div>
     </section> 
 
     <section>

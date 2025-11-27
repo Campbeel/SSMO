@@ -34,7 +34,7 @@
               <td>{{ a.notes or '-' }}</td>
               <td>
                 <a class="secondary" href="{{ url_for('cosam_reschedule', case_id=c.id) }}">Reagendar</a>
-                <a class="secondary" href="{{ url_for('ver_formulario', form_id=f.id) }}">Ver ficha</a>
+                <a class="secondary" href="{{ url_for('ver_formulario', form_id=f.id, back=request.full_path) }}">Ver ficha</a>
               </td>
             </tr>
           {% endfor %}

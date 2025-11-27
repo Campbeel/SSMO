@@ -9,18 +9,6 @@
         <h2>Reportes COSAM</h2>
         <p>Resumen de fichas derivadas al COSAM, con filtros y visualización dinámica.</p>
       </div>
-      {% if totales.total > 0 %}
-        <a class="secondary"
-           href="{{ url_for('cosam_reportes_pdf',
-                            desde=filtros.desde,
-                            hasta=filtros.hasta,
-                            chart_type=chart_type,
-                            metric=metric_keys[0] if metric_keys|length > 0 else None,
-                            metric2=metric_keys[1] if metric_keys|length > 1 else None,
-                            metric3=metric_keys[2] if metric_keys|length > 2 else None) }}">
-          Descargar PDF
-        </a>
-      {% endif %}
     </header>
 
     <form method="get" class="formulario" style="margin-bottom: 1.5rem;">
@@ -67,52 +55,148 @@
       </section>
 
       <section class="summary-section">
-        <h3>Casos por comuna de residencia</h3>
-        <table class="entries-table">
-          <thead>
-            <tr>
-              <th>Comuna</th>
-              <th>Total</th>
-              <th>GES</th>
-              <th>No GES</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for comuna, stats in comunas %}
-              <tr>
-                <td>{{ comuna }}</td>
-                <td>{{ stats.total }}</td>
-                <td>{{ stats.ges }}</td>
-                <td>{{ stats.no_ges }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </section>
-
-      <section class="summary-section">
-        <h3>Patologías GES</h3>
-        {% if patologias %}
-          <table class="entries-table">
-            <thead>
-              <tr>
-                <th>Patología</th>
-                <th>Cantidad de casos</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for nombre, cantidad in patologias %}
+        <h3>Detalle segun filtros seleccionados</h3>
+        {% if detail_table and detail_table["rows"] %}
+          {% if detail_table.mode == 'grouped' %}
+            <table class="entries-table">
+              <thead>
                 <tr>
-                  <td>{{ nombre }}</td>
-                  <td>{{ cantidad }}</td>
+                  <th>{{ detail_table.row_header }}</th>
+                  {% for head in detail_table.column_headers %}
+                    <th>{{ head }}</th>
+                  {% endfor %}
+                  <th>Total</th>
                 </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {% for row in detail_table["rows"] %}
+                  <tr>
+                    <td>{{ row["label"] }}</td>
+                    {% for val in row["values"] %}
+                      <td>{{ val }}</td>
+                    {% endfor %}
+                    <td>{{ row["total"] }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th>Total</th>
+                  {% for total in detail_table.column_totals %}
+                    <th>{{ total }}</th>
+                  {% endfor %}
+                  <th>{{ detail_table.grand_total }}</th>
+                </tr>
+              </tfoot>
+            </table>
+          {% elif detail_table.mode == 'timeline' %}
+            <table class="entries-table">
+              <thead>
+                <tr>
+                  <th>{{ detail_table.row_header }}</th>
+                  {% for col in detail_table.columns %}
+                    <th>{{ col }}</th>
+                  {% endfor %}
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in detail_table["rows"] %}
+                  <tr>
+                    <td>{{ row["label"] }}</td>
+                    {% for val in row["values"] %}
+                      <td>{{ val }}</td>
+                    {% endfor %}
+                    <td>{{ row["total"] }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th>Total</th>
+                  {% for total in detail_table.column_totals %}
+                    <th>{{ total }}</th>
+                  {% endfor %}
+                  <th>{{ detail_table.grand_total }}</th>
+                </tr>
+              </tfoot>
+            </table>
+          {% else %}
+            <table class="entries-table">
+              <thead>
+                <tr>
+                  <th>{{ detail_table.axis_label }}</th>
+                  <th>Casos</th>
+                  <th>% del total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in detail_table["rows"] %}
+                  <tr>
+                    <td>{{ row["label"] }}</td>
+                    <td>{{ row["value"] }}</td>
+                    <td>{{ '%.1f' | format(row["pct"]) }}%</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th>Total</th>
+                  <th>{{ detail_table.grand_total }}</th>
+                  <th>100%</th>
+                </tr>
+              </tfoot>
+            </table>
+          {% endif %}
         {% else %}
-          <p class="empty-state">No hay casos GES en el período seleccionado.</p>
+          <p class="empty-state">No hay datos para mostrar con los filtros actuales.</p>
         {% endif %}
       </section>
+      <section class="summary-section" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; justify-content: flex-end;">
+        <div class="inline-form" style="display: inline-flex; gap: 0.5rem;">
+          <form method="post" action="{{ url_for('cosam_reportes') }}" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="action" value="add">
+            <input type="hidden" name="desde" value="{{ filtros.desde }}">
+            <input type="hidden" name="hasta" value="{{ filtros.hasta }}">
+            <input type="hidden" name="chart_type" value="{{ chart_type }}">
+            <input type="hidden" name="metric" value="{{ metric_keys[0] if metric_keys|length > 0 else '' }}">
+            <input type="hidden" name="metric2" value="{{ metric_keys[1] if metric_keys|length > 1 else '' }}">
+            <input type="hidden" name="metric3" value="{{ metric_keys[2] if metric_keys|length > 2 else '' }}">
+            <button type="submit" class="secondary" style="background: #fff; color: #1d4ed8; border: 1px solid #1d4ed8; border-radius: 999px; padding: 0.55rem 1.4rem; font-weight: 600;">Sumar información</button>
+          </form>
+          <form method="post" action="{{ url_for('cosam_reportes') }}" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="action" value="clear">
+            <button type="submit" class="secondary" style="background: #fff; color: #1d4ed8; border: 1px solid #1d4ed8; border-radius: 999px; padding: 0.55rem 1.4rem; font-weight: 600;">Limpiar guardados</button>
+          </form>
+        </div>
+        <form method="post" action="{{ url_for('cosam_reportes') }}" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="generate">
+          <input type="hidden" name="desde" value="{{ filtros.desde }}">
+          <input type="hidden" name="hasta" value="{{ filtros.hasta }}">
+          <input type="hidden" name="chart_type" value="{{ chart_type }}">
+          <input type="hidden" name="metric" value="{{ metric_keys[0] if metric_keys|length > 0 else '' }}">
+          <input type="hidden" name="metric2" value="{{ metric_keys[1] if metric_keys|length > 1 else '' }}">
+          <input type="hidden" name="metric3" value="{{ metric_keys[2] if metric_keys|length > 2 else '' }}">
+          <button type="submit" class="primary" style="border-radius: 999px; padding: 0.55rem 1.4rem; font-weight: 600;">Generar informe</button>
+        </form>
+      </section>
+
+      {% if saved_reports %}
+        <section class="summary-section">
+          <h3>Información guardada</h3>
+          <ul>
+            {% for item in saved_reports %}
+              <li>
+                {{ loop.index }}. {{ item.chart_type|capitalize }} - {{ item.focus }}
+                ({{ item.params.desde or 'Todas' }} / {{ item.params.hasta or 'Todas' }})
+              </li>
+            {% endfor %}
+          </ul>
+        </section>
+      {% endif %}
     {% endif %}
   </section>
 

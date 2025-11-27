@@ -3,6 +3,67 @@
 {% block title %}COSAM - Bandeja{% endblock %}
 
 {% block content %}
+  <style>
+    .priority-wrapper {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .priority-dot {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      border: 1px solid #d1d5db;
+      background: #e5e7eb;
+    }
+    .priority-select {
+      min-width: 90px;
+    }
+    .high-alert {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.6rem 0.9rem;
+      border-radius: 12px;
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 8px 20px rgba(153, 27, 27, 0.12);
+      opacity: 0;
+      transform: translateY(-6px);
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+    .high-alert.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .high-alert .badge {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: #dc2626;
+      color: #fff;
+      font-weight: 800;
+      font-size: 0.95rem;
+      box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+    }
+    .high-alert .close-alert {
+      border: none;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0.1rem 0.3rem;
+    }
+  </style>
   <section class="entries">
     <header class="entries-header">
       <div>
@@ -11,6 +72,11 @@
       </div>
     </header>
     {% if casos %}
+      <div id="high-priority-alert" class="high-alert" data-high-count="{{ high_count }}" aria-live="polite">
+        <span class="badge">!</span>
+        <span><strong>{{ high_count }}</strong> fichas con prioridad alta requieren atención.</span>
+        <button type="button" class="close-alert" aria-label="Cerrar alerta">×</button>
+      </div>
       <table class="entries-table">
         <thead>
           <tr>
@@ -18,7 +84,7 @@
             <th>Paciente</th>
             <th>RUT</th>
             <th>Especialidad</th>
-            <th>Acciones</th>
+            <th>Prioridad</th>
           </tr>
         </thead>
         <tbody>
@@ -31,14 +97,17 @@
               <td>
                 <form method="post" action="{{ url_for('cosam_accept', case_id=c.id) }}" style="display:inline">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-                  <select name="prioridad">
-                    <option value="bajo">bajo</option>
-                    <option value="medio" selected>medio</option>
-                    <option value="alto">alto</option>
-                  </select>
+                  <span class="priority-wrapper">
+                    <span class="priority-dot" data-priority-dot></span>
+                    <select name="prioridad" class="priority-select" data-priority-select>
+                      <option value="bajo" {% if c.prioridad == 'bajo' %}selected{% endif %}>bajo</option>
+                      <option value="medio" {% if c.prioridad == 'medio' or not c.prioridad %}selected{% endif %}>medio</option>
+                      <option value="alto" {% if c.prioridad == 'alto' %}selected{% endif %}>alto</option>
+                    </select>
+                  </span>
                   <button class="primary" type="submit">Aceptar</button>
                 </form>
-                <a class="secondary" href="{{ url_for('ver_formulario', form_id=f.id) }}">Ver</a>
+                <a class="secondary" href="{{ url_for('ver_formulario', form_id=f.id, back=request.full_path) }}">Ver</a>
               </td>
             </tr>
           {% endfor %}
@@ -48,4 +117,36 @@
       <p class="empty-state">Sin fichas nuevas.</p>
     {% endif %}
   </section>
+  <script>
+    (function () {
+      const colorMap = {
+        alto: '#ef4444',
+        medio: '#f59e0b',
+        bajo: '#10b981',
+      };
+      document.querySelectorAll('[data-priority-select]').forEach((select) => {
+        const dot = select.closest('.priority-wrapper')?.querySelector('[data-priority-dot]');
+        const apply = () => {
+          const val = (select.value || 'medio').toLowerCase();
+          const color = colorMap[val] || '#9ca3af';
+          if (dot) dot.style.backgroundColor = color;
+        };
+        select.addEventListener('change', apply);
+        apply();
+      });
+
+      // Alerta al ingresar con casos de prioridad alta
+      const alertBox = document.getElementById('high-priority-alert');
+      if (alertBox) {
+        const count = Number(alertBox.dataset.highCount || '0');
+        const closeBtn = alertBox.querySelector('.close-alert');
+        if (count > 0) {
+          setTimeout(() => alertBox.classList.add('visible'), 120);
+        }
+        if (closeBtn) {
+          closeBtn.addEventListener('click', () => alertBox.classList.remove('visible'));
+        }
+      }
+    })();
+  </script>
 {% endblock %}

@@ -34,7 +34,7 @@
               <td>{{ c.prioridad or '-' }}</td>
               <td>{{ ev.reason if ev and ev.reason else '-' }}</td>
               <td>
-                <a class="secondary" href="{{ url_for('ver_formulario', form_id=f.id) }}">Ver</a>
+                <a class="secondary" href="{{ url_for('ver_formulario', form_id=f.id, back=request.full_path) }}">Ver</a>
               </td>
             </tr>
           {% endfor %}
@@ -73,7 +73,7 @@
               <td>{{ c.status }}</td>
               <td>{{ c.prioridad or '-' }}</td>
               <td>
-                <a class="secondary" href="{{ url_for('ver_formulario', form_id=f.id) }}">Ver</a>
+                <a class="secondary" href="{{ url_for('ver_formulario', form_id=f.id, back=request.full_path) }}">Ver</a>
               </td>
             </tr>
           {% endfor %}

@@ -18,7 +18,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from flask import Flask, flash, redirect, render_template, request, url_for, jsonify, abort, session, make_response, g
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import ForeignKey, func
+from sqlalchemy import ForeignKey, func, case
 from argon2 import PasswordHasher
 import jwt
 from cryptography.hazmat.primitives import serialization
@@ -689,8 +689,12 @@ def admin_user_delete(user_id: int):
 
 
 @app.route("/admin/ges", methods=["GET", "POST"]) 
-@login_required([UserRole.admin])
+@login_required([UserRole.cosam])
 def admin_ges():
+    # Solo administradores COSAM
+    user = getattr(g, "current_user", None)
+    if not user or not getattr(user, "is_master_admin", False):
+        abort(403)
     if request.method == "POST":
         name = (request.form.get("name") or "").strip()
         action = (request.form.get("action") or "").strip()
@@ -913,16 +917,19 @@ def seed_demo_data(password: str):
 @app.route("/cosam/inbox")
 @login_required([UserRole.cosam])
 def cosam_inbox():
+    porder = case((Case.prioridad == "alto", 0), (Case.prioridad == "medio", 1), else_=2)
     items = (
         Case.query.filter(Case.status == "enviado")
-        .order_by(Case.created_at.desc())
+        .order_by(porder, Case.created_at.desc())
         .all()
     )
-    # join simple: obtener formularios
-    by_form = {c.form_id: c for c in items}
-    forms = MedicalForm.query.filter(MedicalForm.id.in_(list(by_form.keys()))).all()
-    pares = [(by_form[f.id], f) for f in forms]
-    return render_template("cosam_inbox.html", casos=pares)
+    form_map = {
+        f.id: f
+        for f in MedicalForm.query.filter(MedicalForm.id.in_([c.form_id for c in items])).all()
+    }
+    pares = [(c, form_map.get(c.form_id)) for c in items if form_map.get(c.form_id)]
+    high_count = sum(1 for c, _f in pares if (c.prioridad or "").lower() == "alto")
+    return render_template("cosam_inbox.html", casos=pares, high_count=high_count)
 
 
 @app.route("/cosam/accept/<int:case_id>", methods=["GET", "POST"])
@@ -1194,12 +1201,13 @@ def seed_db():
     print("Base creada y sembrada (main): 1 formulario de ejemplo.")
 
 
-def _build_cosam_report():
-    """Construye el reporte COSAM (filtros, totales y agregados) a partir de los query params actuales."""
+def _build_cosam_report(params: Optional[Mapping[str, Any]] = None):
+    """Construye el reporte COSAM (filtros, totales y agregados) a partir de los parámetros dados."""
     from collections import defaultdict, defaultdict as _dd
 
-    fecha_desde_str = (request.args.get("desde") or "").strip()
-    fecha_hasta_str = (request.args.get("hasta") or "").strip()
+    params = params or request.args
+    fecha_desde_str = (params.get("desde") or "").strip()
+    fecha_hasta_str = (params.get("hasta") or "").strip()
 
     query = db.session.query(MedicalForm, Case).join(Case, Case.form_id == MedicalForm.id)
 
@@ -1271,6 +1279,7 @@ def _build_cosam_report():
         edad_val = _age_bucket(form.edad)
         ges_label = "GES" if _form_es_ges(form) else "No GES"
         tipo_val = (form.tipo_consulta or "Sin dato").strip() or "Sin dato"
+        tipo_val = _normalize_tipo_consulta(tipo_val)
         pat_list = form.patologias_ges_lista()
         pat_val = pat_list[0] if pat_list else "Sin patolog?a GES"
 
@@ -1315,12 +1324,87 @@ def _build_cosam_report():
 
 
 
-@app.route("/cosam/reportes", methods=["GET"])
+def _get_saved_reports() -> List[Dict[str, Any]]:
+    try:
+        saved = session.get("cosam_report_saved", [])
+        if isinstance(saved, list):
+            return saved
+    except Exception:
+        pass
+    return []
+
+
+def _set_saved_reports(items: List[Dict[str, Any]]) -> None:
+    session["cosam_report_saved"] = items
+    session.modified = True
+
+
+def _prepare_report_section(params: Mapping[str, Any], chart_type: str, metric_keys: List[str]) -> Dict[str, Any]:
+    data = _build_cosam_report(params)
+    labels, values, dataset_title, datasets = _build_metric_dataset(data["filas"], metric_keys, chart_type)
+    detail_table = _build_detail_table(labels, values, datasets, metric_keys, chart_type)
+    report_focus = _report_focus(metric_keys)
+    return {
+        "filtros": data["filtros"],
+        "totales": data["totales"],
+        "detail_table": detail_table,
+        "labels": labels,
+        "values": values,
+        "datasets": datasets,
+        "dataset_title": dataset_title,
+        "chart_type": chart_type,
+        "report_focus": report_focus,
+    }
+
+
+def _handle_report_post() -> Any:
+    action = (request.form.get("action") or "").strip()
+    chart_type = (request.form.get("chart_type") or "bar").strip() or "bar"
+    if chart_type not in {"bar", "line", "pie"}:
+        chart_type = "bar"
+    metric_keys = _parse_metric_keys(request.form, chart_type=chart_type)
+    params = {
+        "desde": (request.form.get("desde") or "").strip(),
+        "hasta": (request.form.get("hasta") or "").strip(),
+    }
+
+    if action == "add":
+        saved = _get_saved_reports()
+        saved.append({
+            "params": params,
+            "chart_type": chart_type,
+            "metric_keys": metric_keys,
+        })
+        _set_saved_reports(saved)
+        flash("Se guardó la selección actual para el informe combinado.", "success")
+        return redirect(url_for("cosam_reportes"))
+
+    if action == "clear":
+        _set_saved_reports([])
+        flash("Se limpiaron las selecciones guardadas para el informe.", "success")
+        return redirect(url_for("cosam_reportes"))
+
+    if action == "generate":
+        saved = _get_saved_reports()
+        entries = saved if saved else [{"params": params, "chart_type": chart_type, "metric_keys": metric_keys}]
+        sections = [_prepare_report_section(entry["params"], entry["chart_type"], entry["metric_keys"]) for entry in entries]
+        # Limpiar después de generar para evitar duplicados
+        _set_saved_reports([])
+        return _render_cosam_pdf(sections)
+
+    flash("Acción no válida.", "error")
+    return redirect(url_for("cosam_reportes"))
+
+
+@app.route("/cosam/reportes", methods=["GET", "POST"])
 @login_required([UserRole.cosam])
 def cosam_reportes():
     """
     Vista de reportes dinámicos para usuarios COSAM.
     """
+    if request.method == "POST":
+        return _handle_report_post()
+
     chart_type = (request.args.get("chart_type") or "bar").strip() or "bar"
     if chart_type not in {"bar", "line", "pie"}:
         chart_type = "bar"
@@ -1329,6 +1413,18 @@ def cosam_reportes():
 
     data = _build_cosam_report()
     labels, values, title, datasets = _build_metric_dataset(data["filas"], metric_keys, chart_type)
+    detail_table = _build_detail_table(labels, values, datasets, metric_keys, chart_type)
+    report_focus = _report_focus(metric_keys)
+    saved_raw = _get_saved_reports()
+    saved_reports = []
+    for item in saved_raw:
+        try:
+            saved_reports.append({
+                **item,
+                "focus": _report_focus(item.get("metric_keys", [])),
+            })
+        except Exception:
+            saved_reports.append(item)
 
     return render_template(
         "cosam_reports.html",
@@ -1338,244 +1434,368 @@ def cosam_reportes():
         totales=data["totales"],
         chart=data["chart"],
         current={"labels": labels, "values": values, "title": title, "datasets": datasets},
+        detail_table=detail_table,
+        report_focus=report_focus,
         metric_keys=metric_keys,
         metric_options={k: v[0] for k, v in ATTRIBUTE_CONFIG.items()},
         chart_type=chart_type,
         comunas_catalogo=COMUNAS,
+        saved_reports=saved_reports,
     )
 
 
-@app.route("/cosam/reportes/pdf", methods=["GET"])
-@login_required([UserRole.cosam])
-def cosam_reportes_pdf():
-    """
-    Genera un PDF descargable con el resumen del reporte COSAM
-    (mismos filtros que la vista HTML).
-    """
-    data = _build_cosam_report()
-    # Métricas y tipo de gráfico seleccionados en la UI
-    chart_type = (request.args.get("chart_type") or "bar").strip() or "bar"
-    if chart_type not in {"bar", "line", "pie"}:
-        chart_type = "bar"
-    metric_keys = _parse_metric_keys(request.args, chart_type=chart_type)
-    filtros = data["filtros"]
-    totales = data["totales"]
-    comunas = data["comunas"]
-    patologias = data["patologias"]
-    labels, values, dataset_title, datasets = _build_metric_dataset(data["filas"], metric_keys, chart_type)
-
+def _render_cosam_pdf(sections: List[Dict[str, Any]]):
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     w, h = A4
     margin_left = 42
     bottom_margin = 60
-    y = h - 50
 
-    def ensure_space(current_y: float, needed: float = 40) -> float:
-        if current_y - needed < bottom_margin:
-            c.showPage()
-            return h - 50
-        return current_y
-
-    def draw_paragraph(title: str, lines: List[str], indent: int = 12) -> None:
-        nonlocal y
-        height = 18 + 14 * len(lines)
-        y = ensure_space(y, height)
-        c.setFont("Helvetica-Bold", 12)
-        c.drawString(margin_left, y, title)
-        y -= 16
-        c.setFont("Helvetica", 10)
-        for line in lines:
-            c.drawString(margin_left + indent, y, line)
-            y -= 14
-
-    def draw_table(title: str, headers: List[str], rows: List[List[str]], widths: List[int]) -> None:
-        nonlocal y
-        height = 20 + 12 * (len(rows) + 1)
-        y = ensure_space(y, height)
-        c.setFont("Helvetica-Bold", 12)
-        c.drawString(margin_left, y, title)
-        y -= 18
-        c.setFont("Helvetica-Bold", 9)
-        x = margin_left
-        for head, width in zip(headers, widths):
-            c.drawString(x, y, head)
-            x += width
-        y -= 12
-        c.setFont("Helvetica", 9)
-        for row in rows:
-            x = margin_left
-            for idx, (cell, width) in enumerate(zip(row, widths)):
-                if idx == 0:
-                    c.drawString(x, y, cell)
-                else:
-                    c.drawRightString(x + width - 10, y, cell)
-                x += width
-            y -= 12
-
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(margin_left, y, "Reporte COSAM - Derivaciones")
-    y -= 28
-    c.setFont("Helvetica", 10)
-    c.drawString(margin_left, y, f"Generado el: {datetime.utcnow():%d/%m/%Y %H:%M}")
-    y -= 24
-
-    draw_paragraph(
-        "Filtros aplicados",
-        [
-            f"Fecha desde: {filtros.get('desde') or 'Todas'}",
-            f"Fecha hasta: {filtros.get('hasta') or 'Todas'}",
-        ],
-    )
-    draw_paragraph(
-        "Totales",
-        [
-            f"Total de casos: {totales.get('total', 0)}",
-            f"Casos GES: {totales.get('ges', 0)}",
-            f"Casos no GES: {totales.get('no_ges', 0)}",
-        ],
-    )
-
-    tabla_comunas = [
-        [str(comuna), str(stats.get("total", 0)), str(stats.get("ges", 0)), str(stats.get("no_ges", 0))]
-        for comuna, stats in comunas
-    ]
-    draw_table("Casos por comuna", ["Comuna", "Total", "GES", "No GES"], tabla_comunas, [150, 80, 70, 70])
-
-    tabla_patologias = [[str(nombre), str(cantidad)] for nombre, cantidad in patologias]
-    draw_table("Patologías GES", ["Patología", "Casos"], tabla_patologias, [260, 80])
-
-    all_values = [val for dataset in (datasets or []) for val in dataset.get("data", [])]
-    if chart_type == "pie":
-        all_values = values
-    if labels and all_values and max(all_values) > 0:
+    def draw_cover():
+        y = h - 160
+        try:
+            logo_path = os.path.join(app.root_path, "static", "img", "logo-minsal.png")
+            if os.path.exists(logo_path):
+                c.drawImage(ImageReader(logo_path), margin_left, y, width=140, preserveAspectRatio=True, mask="auto")
+        except Exception:
+            pass
+        center_x = w / 2
+        c.setFont("Helvetica-Bold", 24)
+        c.drawCentredString(center_x, y - 10, "Reporte COSAM")
+        c.setFont("Helvetica", 12)
+        c.drawCentredString(center_x, y - 36, f"Generado el: {datetime.utcnow():%d/%m/%Y %H:%M}")
+        c.setFont("Helvetica", 11)
+        c.drawCentredString(center_x, y - 54, f"Secciones incluidas: {len(sections)}")
         c.showPage()
-        y = h - 60
-        c.setFont("Helvetica-Bold", 12)
-        c.drawString(margin_left, y, f"Gráfico principal: {dataset_title}")
-        y -= 30
 
-        left = margin_left
-        bottom = 90
-        chart_width = w - (margin_left * 2) - 140
-        chart_height = h - 200
+    def draw_index():
+        y = h - 120
+        c.setFont("Helvetica-Bold", 18)
+        c.drawString(margin_left, y, "Índice")
+        y -= 26
+        c.setFont("Helvetica", 11)
+        for idx, sec in enumerate(sections, start=1):
+            title = sec.get("report_focus", "Casos")
+            c.drawString(margin_left, y, f"{idx}. {title}")
+            y -= 16
+            if y < bottom_margin + 20:
+                c.showPage()
+                y = h - 120
+                c.setFont("Helvetica-Bold", 18)
+                c.drawString(margin_left, y, "Índice (cont.)")
+                y -= 24
+                c.setFont("Helvetica", 11)
+        c.showPage()
 
-        base_colors = [
-            (0.145, 0.388, 0.921),
-            (0.086, 0.639, 0.290),
-            (0.976, 0.451, 0.086),
-            (0.863, 0.149, 0.149),
-            (0.486, 0.227, 0.933),
-            (0.051, 0.580, 0.533),
-            (0.918, 0.702, 0.047),
-            (0.925, 0.286, 0.600),
-            (0.033, 0.569, 0.698),
-            (0.294, 0.333, 0.388),
-        ]
+    def draw_section(section: Dict[str, Any], idx: int) -> None:
+        y = h - 100
 
-        def pick_color(idx: int) -> Tuple[float, float, float]:
-            return base_colors[idx % len(base_colors)]
+        def ensure_space(current_y: float, needed: float = 40) -> float:
+            if current_y - needed < bottom_margin:
+                c.showPage()
+                return h - 50
+            return current_y
 
-        legend_entries: List[Tuple[Tuple[float, float, float], str]] = []
+        def draw_paragraph(title: str, lines: List[str], indent: int = 12) -> float:
+            nonlocal y
+            height = 18 + 14 * len(lines)
+            y = ensure_space(y, height)
+            c.setFont("Helvetica-Bold", 12)
+            c.drawString(margin_left, y, title)
+            y -= 16
+            c.setFont("Helvetica", 10)
+            for line in lines:
+                c.drawString(margin_left + indent, y, line)
+                y -= 14
+            return y
 
-        if chart_type == "pie":
-            total_val = sum(values) or 1
-            radius = min(chart_width, chart_height) * 0.4
-            cx = left + radius + 30
-            cy = bottom + chart_height / 2
-            start_angle = 0.0
-            for idx, (label, val) in enumerate(zip(labels, values)):
-                extent = 360.0 * (val / total_val)
-                r, g, b = pick_color(idx)
-                c.setFillColorRGB(r, g, b)
-                c.wedge(
-                    cx - radius,
-                    cy - radius,
-                    cx + radius,
-                    cy + radius,
-                    start_angle,
-                    extent,
-                    stroke=0,
-                    fill=1,
-                )
-                legend_entries.append(((r, g, b), f"{label}: {val}"))
-                start_angle += extent
-        elif chart_type == "line":
-            datasets_to_draw = datasets or [{"label": dataset_title, "data": values}]
-            max_val = max(all_values) or 1
-            count = len(labels)
+        def draw_table(title: str, headers: List[str], rows: List[List[str]], widths: List[int]) -> None:
+            nonlocal y
+            row_height = 14
+            height = 24 + row_height * (len(rows) + 1)
+            y = ensure_space(y, height)
+            c.setFont("Helvetica-Bold", 13)
+            c.drawString(margin_left, y, title)
+            y -= 18
+            c.setFont("Helvetica-Bold", 10)
+            x = margin_left
+            header_y = y
+            for head, width in zip(headers, widths):
+                c.drawString(x, y, head)
+                x += width
+            y -= row_height
+            c.setFont("Helvetica", 10)
+            row_start_y = y
+            for row in rows:
+                x = margin_left
+                for id_col, (cell, width) in enumerate(zip(row, widths)):
+                    if id_col == 0:
+                        c.drawString(x, y + 2, cell)
+                    else:
+                        c.drawRightString(x + width - 10, y + 2, cell)
+                    x += width
+                y -= row_height
+            # Dibujar cuadrícula ligera
+            grid_top = header_y
+            grid_bottom = y + row_height
+            c.setStrokeColorRGB(0.8, 0.8, 0.8)
+            c.setLineWidth(0.4)
+            col_positions = [margin_left]
+            acc = margin_left
+            for width in widths:
+                acc += width
+                col_positions.append(acc)
+            # Verticales
+            for pos in col_positions:
+                c.line(pos, grid_top, pos, grid_bottom)
+            # Horizontales
+            total_rows = len(rows) + 1
+            for i_line in range(total_rows + 1):
+                y_line = grid_top - (i_line * row_height)
+                c.line(margin_left, y_line, margin_left + sum(widths), y_line)
             c.setStrokeColorRGB(0, 0, 0)
-            c.line(left, bottom, left, bottom + chart_height)
-            c.line(left, bottom, left + chart_width, bottom)
-            step = chart_width / max(count - 1, 1)
-            c.setFont("Helvetica", 8)
-            for idx_label, label in enumerate(labels):
-                c.drawString(left + step * idx_label - 10, bottom - 12, str(label))
-            for idx_ds, dataset in enumerate(datasets_to_draw):
-                r, g, b = pick_color(idx_ds)
-                legend_entries.append(((r, g, b), dataset.get("label") or f"Serie {idx_ds+1}"))
-                points = []
-                for idx_label in range(len(labels)):
-                    val = dataset.get("data", [])
-                    value = val[idx_label] if idx_label < len(val) else 0
-                    x_point = left + step * idx_label
-                    y_point = bottom + (value / max_val) * chart_height
-                    points.append((x_point, y_point, value))
-                c.setStrokeColorRGB(r, g, b)
-                for i in range(1, len(points)):
-                    c.line(points[i - 1][0], points[i - 1][1], points[i][0], points[i][1])
-                for (x_point, y_point, value) in points:
-                    c.setFillColorRGB(r, g, b)
-                    c.circle(x_point, y_point, 2.2, fill=1, stroke=0)
-                    c.setFillColorRGB(0, 0, 0)
-                    c.drawString(x_point + 2, y_point + 2, str(int(value)))
+
+        try:
+            logo_path = os.path.join(app.root_path, "static", "img", "logo-minsal.png")
+            if os.path.exists(logo_path):
+                c.drawImage(ImageReader(logo_path), margin_left, y - 10, width=120, preserveAspectRatio=True, mask="auto")
+        except Exception:
+            pass
+
+        center_x = w / 2
+        c.setFont("Helvetica-Bold", 18)
+        c.drawCentredString(center_x, y, f"Reporte COSAM - {section.get('report_focus', 'Casos')}")
+        y -= 26
+        c.setFont("Helvetica", 11)
+        c.drawCentredString(center_x, y, f"Generado el: {datetime.utcnow():%d/%m/%Y %H:%M}")
+        y -= 28
+
+        filtros = section.get("filtros", {})
+        draw_paragraph(
+            "Filtros aplicados",
+            [
+                f"Fecha desde: {filtros.get('desde') or 'Todas'}",
+                f"Fecha hasta: {filtros.get('hasta') or 'Todas'}",
+            ],
+        )
+
+        detail = section.get("detail_table") or {}
+        if detail.get("rows"):
+            mode = detail.get("mode")
+            if mode == "grouped":
+                raw_headers = [detail.get("row_header", "Categoría")] + detail.get("column_headers", []) + ["Total"]
+                headers = []
+                legends = []
+                for idx_h, head in enumerate(raw_headers):
+                    if idx_h == 0 or idx_h == len(raw_headers) - 1:
+                        headers.append(head)
+                        continue
+                    long_label = len(head) > 18 or len(raw_headers) > 8
+                    if long_label and "patolog" in head.lower():
+                        alias = f"GES {idx_h}"
+                    elif long_label:
+                        alias = f"Col {idx_h}"
+                    else:
+                        alias = head
+                    headers.append(alias)
+                    if alias != head:
+                        legends.append((alias, head))
+                rows = []
+                for row in detail.get("rows", []):
+                    values = [row.get("label", "—")] + [str(v) for v in row.get("values", [])] + [str(row.get("total", 0))]
+                    rows.append(values)
+                rows.append(["Total"] + [str(v) for v in detail.get("column_totals", [])] + [str(detail.get("grand_total", 0))])
+                available_width = w - (margin_left * 2)
+                first_w = max(120, min(180, int(available_width * 0.28)))
+                other_w = max(50, int((available_width - first_w) / max(len(headers) - 1, 1)))
+                widths = [first_w] + [other_w] * (len(headers) - 1)
+                if len(headers) > 8:
+                    c.setFont("Helvetica-Bold", 9)
+                draw_table(f"Detalle por {detail.get('row_header', 'categoría')}", headers, rows, widths)
+                if legends:
+                    legend_lines = [f"{alias}: {full}" for alias, full in legends]
+                    draw_paragraph("Leyenda columnas", legend_lines)
+            elif mode == "timeline":
+                headers = [detail.get("row_header", "Categoría")] + detail.get("columns", []) + ["Total"]
+                rows = []
+                for row in detail.get("rows", []):
+                    values = [row.get("label", "—")] + [str(v) for v in row.get("values", [])] + [str(row.get("total", 0))]
+                    rows.append(values)
+                rows.append(["Total"] + [str(v) for v in detail.get("column_totals", [])] + [str(detail.get("grand_total", 0))])
+                available_width = w - (margin_left * 2)
+                first_w = max(120, min(170, int(available_width * 0.25)))
+                remaining = max(1, len(headers) - 1)
+                other_w = max(50, int((available_width - first_w) / remaining))
+                widths = [first_w] + [other_w] * (len(headers) - 1)
+                draw_table(f"Detalle por {detail.get('row_header', 'categoría')} en el tiempo", headers, rows, widths)
+            else:
+                headers = [detail.get("axis_label", "Categoría"), "Casos", "% del total"]
+                rows = []
+                for row in detail.get("rows", []):
+                    rows.append([row.get("label", "—"), str(row.get("value", 0)), f"{row.get('pct', 0):.1f}%"])
+                rows.append(["Total", str(detail.get("grand_total", 0)), "100%"])
+                draw_table(f"Detalle por {detail.get('axis_label', 'categoría')}", headers, rows, [200, 80, 80])
         else:
-            datasets_to_draw = datasets or [{"label": dataset_title, "data": values}]
-            max_val = max(all_values) or 1
-            label_count = len(labels)
-            series_count = max(1, len(datasets_to_draw))
-            group_spacing = 6
-            available_width = chart_width - group_spacing * (label_count + 1)
-            group_width = available_width / max(label_count, 1)
-            inner_spacing = 2
-            bar_width = max(4, (group_width - inner_spacing * (series_count - 1)) / max(series_count, 1))
-            c.setStrokeColorRGB(0, 0, 0)
-            c.line(left, bottom, left, bottom + chart_height)
-            c.line(left, bottom, left + chart_width, bottom)
-            c.setFont("Helvetica", 8)
-            for idx_label, label in enumerate(labels):
-                group_x = left + group_spacing + idx_label * (group_width + group_spacing)
-                c.drawString(group_x, bottom - 12, str(label)[:18])
-                for idx_ds, dataset in enumerate(datasets_to_draw):
-                    vals = dataset.get("data", [])
-                    value = vals[idx_label] if idx_label < len(vals) else 0
-                    height_bar = (value / max_val) * chart_height if max_val else 0
-                    x = group_x + idx_ds * (bar_width + inner_spacing)
-                    r, g, b = pick_color(idx_ds)
-                    c.setFillColorRGB(r, g, b)
-                    c.rect(x, bottom, bar_width, height_bar, fill=1, stroke=0)
-                    c.setFillColorRGB(0, 0, 0)
-                    c.drawString(x, bottom + height_bar + 2, str(int(value)))
-            legend_entries = [
-                (pick_color(i), datasets_to_draw[i].get("label") or f"Serie {i+1}")
-                for i in range(series_count)
+            draw_paragraph("Detalle", ["No hay datos para los filtros seleccionados."])
+
+        labels = section.get("labels") or []
+        datasets = section.get("datasets") or []
+        values = section.get("values") or []
+        chart_type = section.get("chart_type") or "bar"
+        dataset_title = section.get("dataset_title") or "Casos"
+
+        all_values = [val for dataset in (datasets or []) for val in dataset.get("data", [])]
+        if chart_type == "pie":
+            all_values = values
+        if labels and all_values and max(all_values) > 0:
+            chart_width = min(w * 0.78, 500)
+            chart_height = min(h * 0.45, 320)
+            # ¿Cabe en la misma página?
+            y_chart = y - 30
+            needed = chart_height + 60
+            if y_chart - needed < bottom_margin:
+                c.showPage()
+                y_chart = h - 70
+            center_x_chart = w / 2
+            c.setFont("Helvetica-Bold", 14)
+            c.drawCentredString(center_x_chart, y_chart, f"Gráfico : {dataset_title}")
+            y_chart -= 28
+
+            left = (w - chart_width) / 2
+            bottom = max(bottom_margin + 20, y_chart - chart_height - 40)
+
+            base_colors = [
+                (0.145, 0.388, 0.921),
+                (0.086, 0.639, 0.290),
+                (0.976, 0.451, 0.086),
+                (0.863, 0.149, 0.149),
+                (0.486, 0.227, 0.933),
+                (0.051, 0.580, 0.533),
+                (0.918, 0.702, 0.047),
+                (0.925, 0.286, 0.600),
+                (0.033, 0.569, 0.698),
+                (0.294, 0.333, 0.388),
             ]
 
-        if legend_entries:
-            legend_x = left + chart_width + 20
-            legend_y = bottom + chart_height
-            c.setFont("Helvetica", 9)
-            for color, text in legend_entries:
-                if legend_y < bottom + 20:
-                    legend_y = bottom + chart_height
-                    legend_x += 140
-                r, g, b = color
-                c.setFillColorRGB(r, g, b)
-                c.rect(legend_x, legend_y - 8, 10, 10, fill=1, stroke=0)
-                c.setFillColorRGB(0, 0, 0)
-                short_text = text if len(text) < 32 else text[:31] + "…"
-                c.drawString(legend_x + 14, legend_y - 5, short_text)
-                legend_y -= 14
+            def pick_color(idx: int) -> Tuple[float, float, float]:
+                return base_colors[idx % len(base_colors)]
+
+            legend_entries: List[Tuple[Tuple[float, float, float], str]] = []
+
+            if chart_type == "pie":
+                legend_space = 170
+                available_width = w - (margin_left * 2) - legend_space
+                chart_width = min(chart_width, available_width)
+                left = margin_left + max(0, (available_width - chart_width) / 2)
+                total_val = sum(values) or 1
+                radius = min(chart_width, chart_height) * 0.45
+                cx = left + chart_width / 2
+                cy = bottom + chart_height / 2
+                start_angle = 0.0
+                for idx_p, (label, val) in enumerate(zip(labels, values)):
+                    extent = 360.0 * (val / total_val)
+                    r, g, b = pick_color(idx_p)
+                    c.setFillColorRGB(r, g, b)
+                    c.wedge(
+                        cx - radius,
+                        cy - radius,
+                        cx + radius,
+                        cy + radius,
+                        start_angle,
+                        extent,
+                        stroke=0,
+                        fill=1,
+                    )
+                    legend_entries.append(((r, g, b), f"{label}: {val}"))
+                    start_angle += extent
+            elif chart_type == "line":
+                datasets_to_draw = datasets or [{"label": dataset_title, "data": values}]
+                max_val = max(all_values) or 1
+                count = len(labels)
+                c.setStrokeColorRGB(0, 0, 0)
+                c.line(left, bottom, left, bottom + chart_height)
+                c.line(left, bottom, left + chart_width, bottom)
+                step = chart_width / max(count - 1, 1)
+                c.setFont("Helvetica", 8)
+                for idx_label, label in enumerate(labels):
+                    c.drawString(left + step * idx_label - 10, bottom - 12, str(label))
+                for idx_ds, dataset in enumerate(datasets_to_draw):
+                    r, g, b = pick_color(idx_ds)
+                    legend_entries.append(((r, g, b), dataset.get("label") or f"Serie {idx_ds+1}"))
+                    points = []
+                    for idx_label in range(len(labels)):
+                        val = dataset.get("data", [])
+                        value = val[idx_label] if idx_label < len(val) else 0
+                        x_point = left + step * idx_label
+                        y_point = bottom + (value / max_val) * chart_height
+                        points.append((x_point, y_point, value))
+                    c.setStrokeColorRGB(r, g, b)
+                    for i_line in range(1, len(points)):
+                        c.line(points[i_line - 1][0], points[i_line - 1][1], points[i_line][0], points[i_line][1])
+                    for (x_point, y_point, value) in points:
+                        c.setFillColorRGB(r, g, b)
+                        c.circle(x_point, y_point, 2.2, fill=1, stroke=0)
+                        c.setFillColorRGB(0, 0, 0)
+                        c.drawString(x_point + 2, y_point + 2, str(int(value)))
+            else:
+                datasets_to_draw = datasets or [{"label": dataset_title, "data": values}]
+                max_val = max(all_values) or 1
+                label_count = len(labels)
+                series_count = max(1, len(datasets_to_draw))
+                group_spacing = 6
+                available_width = chart_width - group_spacing * (label_count + 1)
+                group_width = available_width / max(label_count, 1)
+                inner_spacing = 2
+                bar_width = max(4, (group_width - inner_spacing * (series_count - 1)) / max(series_count, 1))
+                c.setStrokeColorRGB(0, 0, 0)
+                c.line(left, bottom, left, bottom + chart_height)
+                c.line(left, bottom, left + chart_width, bottom)
+                c.setFont("Helvetica", 8)
+                for idx_label, label in enumerate(labels):
+                    group_x = left + group_spacing + idx_label * (group_width + group_spacing)
+                    c.drawString(group_x, bottom - 12, str(label)[:18])
+                    for idx_ds, dataset in enumerate(datasets_to_draw):
+                        vals = dataset.get("data", [])
+                        value = vals[idx_label] if idx_label < len(vals) else 0
+                        height_bar = (value / max_val) * chart_height if max_val else 0
+                        x = group_x + idx_ds * (bar_width + inner_spacing)
+                        r, g, b = pick_color(idx_ds)
+                        c.setFillColorRGB(r, g, b)
+                        c.rect(x, bottom, bar_width, height_bar, fill=1, stroke=0)
+                        c.setFillColorRGB(0, 0, 0)
+                        c.drawString(x, bottom + height_bar + 2, str(int(value)))
+                legend_entries = [
+                    (pick_color(i), datasets_to_draw[i].get("label") or f"Serie {i+1}")
+                    for i in range(series_count)
+                ]
+
+            if legend_entries:
+                legend_width = 140
+                desired_x = left + chart_width + 20
+                legend_x = min(w - margin_left - legend_width, desired_x)
+                legend_x = max(margin_left, legend_x)
+                legend_y = bottom + chart_height - 6
+                c.setFont("Helvetica", 9)
+                for color, text in legend_entries:
+                    if legend_y < bottom + 30:
+                        legend_y = bottom + chart_height - 6
+                        legend_x = max(margin_left, legend_x + legend_width + 10)
+                    r, g, b = color
+                    c.setFillColorRGB(r, g, b)
+                    c.rect(legend_x, legend_y - 8, 10, 10, fill=1, stroke=0)
+                    c.setFillColorRGB(0, 0, 0)
+                    short_text = text if len(text) < 32 else text[:31] + "…"
+                    c.drawString(legend_x + 14, legend_y - 5, short_text)
+                    legend_y -= 14
+
+    # Portada e índice
+    draw_cover()
+    draw_index()
+
+    for idx_sec, section in enumerate(sections):
+        if idx_sec > 0:
+            c.showPage()
+        draw_section(section, idx_sec)
 
     c.save()
     buf.seek(0)
@@ -1584,6 +1804,21 @@ def cosam_reportes_pdf():
 
     filename = "reporte_cosam.pdf"
     return send_file(buf, as_attachment=True, download_name=filename, mimetype="application/pdf")
+
+
+@app.route("/cosam/reportes/pdf", methods=["GET"])
+@login_required([UserRole.cosam])
+def cosam_reportes_pdf():
+    params = {
+        "desde": (request.args.get("desde") or "").strip(),
+        "hasta": (request.args.get("hasta") or "").strip(),
+    }
+    chart_type = (request.args.get("chart_type") or "bar").strip() or "bar"
+    if chart_type not in {"bar", "line", "pie"}:
+        chart_type = "bar"
+    metric_keys = _parse_metric_keys(request.args, chart_type=chart_type)
+    section = _prepare_report_section(params, chart_type, metric_keys)
+    return _render_cosam_pdf([section])
 
 def _limpiar_rut(rut: str) -> str:
     return "".join(ch for ch in rut if ch.isdigit() or ch in {"K", "k"})
@@ -1641,7 +1876,7 @@ def _extraer_datos_formulario(form_data) -> Dict[str, Optional[str]]:
     ]
     datos["patologias_ges"] = ";".join(patologias[:3])
     datos["edad"] = _calcular_edad(datos.get("fecha_nacimiento", ""))
-    tipo_consulta = form_data.get("tipo_consulta") or ""
+    tipo_consulta = _normalize_tipo_consulta(form_data.get("tipo_consulta") or "")
     detalle_otro = form_data.get("tipo_consulta_otro", "").strip()
     datos["tipo_consulta_detalle"] = detalle_otro if tipo_consulta == "Otro" else ""
     datos["tipo_consulta"] = tipo_consulta
@@ -1760,6 +1995,16 @@ def formulario():
     valores_iniciales = {campo: "" for campo in FORM_FIELDS}
     valores_iniciales["servicio_salud"] = "Metropolitano Oriente"
     valores_iniciales["tipo_consulta_detalle"] = ""
+    # Defaults para COSAM
+    try:
+        user_role = getattr(getattr(g, "current_user", None), "role", None)
+        if user_role == UserRole.cosam.value:
+            valores_iniciales["admision_comuna"] = "Providencia"
+            valores_iniciales["establecimiento"] = "COSAM"
+            valores_iniciales["derivacion_comuna"] = "Providencia"
+            valores_iniciales["establecimiento_derivacion"] = "COSAM"
+    except Exception:
+        pass
     # Prefill desde ficha existente (solo COSAM)
     try:
         prefill_id = request.args.get("prefill_from")
@@ -1785,7 +2030,10 @@ def formulario():
                     "rut_medico": src.rut_medico or "",
                     # Derivación de vuelta al establecimiento origen
                     "establecimiento_derivacion": src.establecimiento or "",
+                    "derivacion_comuna": src.comuna or "",
                 })
+                valores_iniciales["admision_comuna"] = "Providencia"
+                valores_iniciales["establecimiento"] = "COSAM"
     except Exception:
         pass
     try:
@@ -1846,6 +2094,7 @@ ESTABLECIMIENTOS_POR_COMUNA: Dict[str, List[str]] = {
         "Cesfam Hernán Alessandri",
         "Cesfam El Aguilucho",
         "Cesfam Dr. Alfonso Leng",
+        "COSAM",
     ],
     "Las Condes": [
         "Cesfam Apoquindo",
@@ -1915,6 +2164,7 @@ ESTABLECIMIENTOS_POR_COMUNA = {
         "Cesfam Hern\u00e1n Alessandri",
         "Cesfam El Aguilucho",
         "Cesfam Dr. Alfonso Leng",
+        "COSAM",
     ],
     "Las Condes": [
         "Cesfam Apoquindo",
@@ -2191,6 +2441,17 @@ def _age_bucket(value: Optional[str]) -> str:
     return "65+"
 
 
+def _normalize_tipo_consulta(valor: str) -> str:
+    val = (valor or "").strip().lower()
+    if val in {"presencial", "prescencial"}:
+        return "Presencial"
+    if val == "telemedicina":
+        return "Telemedicina"
+    if val == "otro":
+        return "Otro"
+    return "Otro"
+
+
 ATTRIBUTE_CONFIG: Dict[str, Tuple[str, Callable[[MedicalForm, Case], str]]] = {
     "comuna": (
         "Comuna",
@@ -2210,13 +2471,30 @@ ATTRIBUTE_CONFIG: Dict[str, Tuple[str, Callable[[MedicalForm, Case], str]]] = {
     ),
     "tipo_consulta": (
         "Tipo de consulta",
-        lambda f, c: (f.tipo_consulta or "Sin dato").strip() or "Sin dato",
+        lambda f, c: _normalize_tipo_consulta(f.tipo_consulta or "Sin dato"),
     ),
     "patologia_ges": (
         "Patología GES",
         lambda f, c: (f.patologias_ges_lista() or ["Sin patología GES"])[0],
     ),
 }
+
+
+def _metric_label(key: Optional[str]) -> str:
+    if not key:
+        return "Categoría"
+    return ATTRIBUTE_CONFIG.get(key, (key,))[0]
+
+
+def _report_focus(metric_keys: List[str]) -> str:
+    labels = [_metric_label(k) for k in metric_keys if k]
+    if not labels:
+        return "Casos"
+    if len(labels) == 1:
+        return labels[0]
+    if len(labels) == 2:
+        return f"{labels[0]} vs {labels[1]}"
+    return " vs ".join(labels[:3])
 
 
 def _parse_metric_keys(params: Mapping[str, Any], chart_type: Optional[str] = None) -> List[str]:
@@ -2327,6 +2605,91 @@ def _build_metric_dataset(
     datasets = [{"label": "Casos", "data": values}]
     title = "Casos por " + " y ".join(axis_names)
     return labels, values, title, datasets
+
+
+def _build_detail_table(
+    labels: List[str],
+    values: List[int],
+    datasets: List[Dict[str, Any]],
+    metric_keys: List[str],
+    chart_type: str,
+) -> Dict[str, Any]:
+    """
+    Construye la estructura de la tabla inferior según el tipo de gráfico
+    y las métricas seleccionadas en pantalla.
+    """
+    def _as_int(val: Any) -> int:
+        try:
+            return int(val)
+        except Exception:
+            try:
+                return int(float(val or 0))
+            except Exception:
+                return 0
+
+    if chart_type == "bar" and len(metric_keys) >= 2 and datasets:
+        row_header = _metric_label(metric_keys[0])
+        column_headers = [ds.get("label") or "Dato" for ds in datasets]
+        rows: List[Dict[str, Any]] = []
+        for idx, label in enumerate(labels):
+            row_values: List[int] = []
+            row_total = 0
+            for ds in datasets:
+                data = ds.get("data") or []
+                val = _as_int(data[idx]) if idx < len(data) else 0
+                row_values.append(val)
+                row_total += val
+            rows.append({"label": label, "values": row_values, "total": row_total})
+        column_totals = []
+        for ds in datasets:
+            column_totals.append(sum(_as_int(v) for v in (ds.get("data") or [])))
+        grand_total = sum(column_totals)
+        return {
+            "mode": "grouped",
+            "row_header": row_header,
+            "column_headers": column_headers,
+            "rows": rows,
+            "column_totals": column_totals,
+            "grand_total": grand_total,
+        }
+
+    if chart_type == "line" and datasets and labels:
+        row_header = _metric_label(metric_keys[0] if metric_keys else None)
+        rows: List[Dict[str, Any]] = []
+        for ds in datasets:
+            data = [_as_int(v) for v in (ds.get("data") or [])]
+            rows.append({
+                "label": ds.get("label") or "Dato",
+                "values": data,
+                "total": sum(data),
+            })
+        column_totals = [
+            sum(row["values"][idx] if idx < len(row["values"]) else 0 for row in rows)
+            for idx, _period in enumerate(labels)
+        ]
+        grand_total = sum(column_totals)
+        return {
+            "mode": "timeline",
+            "row_header": row_header,
+            "columns": labels,
+            "rows": rows,
+            "column_totals": column_totals,
+            "grand_total": grand_total,
+        }
+
+    axis_label = _metric_label(metric_keys[0] if metric_keys else None)
+    total = sum(_as_int(v) for v in values)
+    rows = []
+    for label, val in zip(labels, values):
+        count = _as_int(val)
+        pct = round((count / total) * 100, 1) if total else 0.0
+        rows.append({"label": label, "value": count, "pct": pct})
+    return {
+        "mode": "single",
+        "axis_label": axis_label,
+        "rows": rows,
+        "grand_total": total,
+    }
 
 
 if __name__ == "__main__":

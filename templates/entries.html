@@ -31,7 +31,7 @@
               <td>{{ registro.rut or '-' }}</td>
               <td>{{ registro.especialidad or '-' }}</td>
               <td>
-                <a class="secondary" href="{{ url_for('ver_formulario', form_id=registro.id) }}">Ver</a>
+                <a class="secondary" href="{{ url_for('ver_formulario', form_id=registro.id, back=request.full_path) }}">Ver</a>
                 <a class="secondary" href="{{ url_for('form_pdf', form_id=registro.id) }}">Descargar PDF</a>
               </td>
             </tr>
