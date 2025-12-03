@@ -29,24 +29,28 @@ from reportlab.lib.utils import ImageReader
 from io import BytesIO
 
 BASE_DIR = Path(__file__).resolve().parent
-DATABASE_PATH = BASE_DIR / "ssmo.db"
+DATABASE_PATH = Path(os.environ.get("DATABASE_PATH", BASE_DIR / "ssmo.db"))
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.config.update(
     SECRET_KEY=os.environ.get("FLASK_SECRET_KEY", "cambio-esto-en-produccion"),
-    SQLALCHEMY_DATABASE_URI=f"sqlite:///{DATABASE_PATH}",
+    SQLALCHEMY_DATABASE_URI=DATABASE_URL or f"sqlite:///{DATABASE_PATH}",
     SQLALCHEMY_TRACK_MODIFICATIONS=False,
 )
 app.config["DEV_SHOW_USER"] = os.environ.get("DEV_SHOW_USER", "0") in {"1", "true", "TRUE", "yes", "on"}
 # Flags de despliegue
-_https_default = "0" if os.environ.get("FLASK_ENV") == "development" or os.environ.get("FLASK_DEBUG") in {"1", "true", "True"} else "1"
-app.config["FORCE_HTTPS"] = (os.environ.get("FORCE_HTTPS", _https_default) or "").lower() in {"1", "true", "yes", "on"}
+_force_https_raw = os.environ.get("FORCE_HTTPS", "0")  # por defecto no forzamos HTTPS en entornos LAN
+app.config["FORCE_HTTPS"] = (_force_https_raw or "").lower() in {"1", "true", "yes", "on"}
 app.config["TRUST_PROXY_HEADERS"] = (os.environ.get("TRUST_PROXY_HEADERS", "1") or "").lower() in {"1", "true", "yes", "on"}
 app.config.setdefault("SESSION_COOKIE_SAMESITE", "Strict")
 app.config.setdefault("SESSION_COOKIE_HTTPONLY", True)
 if app.config["FORCE_HTTPS"]:
     app.config["SESSION_COOKIE_SECURE"] = True
     app.config["PREFERRED_URL_SCHEME"] = "https"
+else:
+    # En HTTP explícito evitamos marcar la cookie como Secure para no perder la sesión
+    app.config.setdefault("SESSION_COOKIE_SECURE", False)
 if app.config["TRUST_PROXY_HEADERS"]:
     # Respeta X-Forwarded-* cuando corremos detrás de Nginx/Apache
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
@@ -128,6 +132,104 @@ class ReturnEvent(db.Model):
     case_id = db.Column(db.Integer, ForeignKey("cases.id"), nullable=False, index=True)
     reason = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Rol(db.Model):
+    __tablename__ = "roles"
+    id_rol = db.Column(db.Integer, primary_key=True)
+    nombre_rol = db.Column(db.String(80), unique=True, nullable=False)
+    usuarios = db.relationship("Usuario", back_populates="rol", lazy="dynamic")
+
+
+class Usuario(db.Model):
+    __tablename__ = "usuarios"
+    id_usuario = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    dominio = db.Column(db.String(120), nullable=True, index=True)
+    rol_id = db.Column("rol", db.Integer, db.ForeignKey("roles.id_rol"), nullable=False, index=True)
+    es_medico = db.Column(db.Boolean, default=False, nullable=False, index=True)
+
+    rol = db.relationship("Rol", back_populates="usuarios")
+    fichas_profesional = db.relationship(
+        "FichaSIC",
+        foreign_keys="FichaSIC.id_profesional",
+        back_populates="profesional",
+        lazy="dynamic",
+    )
+    fichas_centro = db.relationship(
+        "FichaSIC",
+        foreign_keys="FichaSIC.id_usuario_centro",
+        back_populates="usuario_centro",
+        lazy="dynamic",
+    )
+    fichas_cosam = db.relationship(
+        "FichaSIC",
+        foreign_keys="FichaSIC.id_usuario_cosam",
+        back_populates="usuario_cosam",
+        lazy="dynamic",
+    )
+    reportes = db.relationship("ReporteLog", back_populates="usuario", lazy="dynamic")
+
+
+class Paciente(db.Model):
+    __tablename__ = "pacientes"
+    id_paciente = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(160), nullable=False)
+    rut = db.Column(db.String(20), unique=True, index=True)
+    fecha_nacimiento = db.Column(db.Date)
+    direccion = db.Column(db.String(255))
+    contacto = db.Column(db.String(160))
+
+    fichas = db.relationship("FichaSIC", back_populates="paciente", lazy="dynamic")
+
+
+class FichaSIC(db.Model):
+    __tablename__ = "fichas_sic"
+    id_ficha = db.Column(db.Integer, primary_key=True)
+    id_paciente = db.Column(db.Integer, db.ForeignKey("pacientes.id_paciente"), nullable=False, index=True)
+    id_profesional = db.Column(db.Integer, db.ForeignKey("usuarios.id_usuario"), nullable=False, index=True)
+    id_usuario_centro = db.Column(db.Integer, db.ForeignKey("usuarios.id_usuario"), nullable=False, index=True)
+    id_usuario_cosam = db.Column(db.Integer, db.ForeignKey("usuarios.id_usuario"), nullable=True, index=True)
+    estado = db.Column(db.String(40), default="pendiente", nullable=False, index=True)
+    prioridad_sugerida = db.Column(db.String(40))
+    prioridad_definitiva = db.Column(db.String(40))
+    hipotesis_diagnostica = db.Column(db.Text)
+    fundamento = db.Column(db.Text)
+    examenes = db.Column(db.Text)
+    patologias_ges = db.Column(db.Text)
+    fecha_creacion = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    paciente = db.relationship("Paciente", back_populates="fichas")
+    profesional = db.relationship("Usuario", foreign_keys=[id_profesional], back_populates="fichas_profesional")
+    usuario_centro = db.relationship("Usuario", foreign_keys=[id_usuario_centro], back_populates="fichas_centro")
+    usuario_cosam = db.relationship("Usuario", foreign_keys=[id_usuario_cosam], back_populates="fichas_cosam")
+    agenda = db.relationship("Agenda", back_populates="ficha", lazy="dynamic", cascade="all, delete-orphan")
+    reportes = db.relationship("ReporteLog", back_populates="ficha", lazy="dynamic", cascade="all, delete-orphan")
+
+
+class Agenda(db.Model):
+    __tablename__ = "agenda"
+    id_agenda = db.Column(db.Integer, primary_key=True)
+    id_ficha = db.Column(db.Integer, db.ForeignKey("fichas_sic.id_ficha"), nullable=False, index=True)
+    fecha = db.Column(db.Date, nullable=False)
+    hora = db.Column(db.Time, nullable=False)
+    notas = db.Column(db.Text)
+
+    ficha = db.relationship("FichaSIC", back_populates="agenda")
+
+
+class ReporteLog(db.Model):
+    __tablename__ = "reportes_log"
+    id_reporte = db.Column(db.Integer, primary_key=True)
+    id_usuario = db.Column(db.Integer, db.ForeignKey("usuarios.id_usuario"), nullable=False, index=True)
+    id_ficha = db.Column(db.Integer, db.ForeignKey("fichas_sic.id_ficha"), nullable=True, index=True)
+    tipo_grafico = db.Column(db.String(80))
+    filtros = db.Column(db.Text)
+    fecha_generacion = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    usuario = db.relationship("Usuario", back_populates="reportes")
+    ficha = db.relationship("FichaSIC", back_populates="reportes")
 
 
 @functools.lru_cache(maxsize=1)
@@ -221,7 +323,8 @@ def login_required(roles: Optional[List[UserRole]] = None):
             if roles:
                 allowed = [r.value if isinstance(r, UserRole) else str(r) for r in roles]
                 if getattr(user, "role", None) not in allowed:
-                    abort(403)
+                    # En vez de 403 puro, lo mandamos a la home de su rol para evitar bucles y confusiones
+                    return redirect(_role_default_target(getattr(user, "role", "")))
             g.current_user = user
             return fn(*args, **kwargs)
         return wrapper
@@ -2287,12 +2390,15 @@ def _is_next_allowed_for_role(next_path: Optional[str], role: str) -> bool:
         return False
     if not next_path.startswith("/"):
         return False
+    # El inicio "/" solo es válido para roles que pueden ver el formulario principal
+    if next_path == "/":
+        return role in {UserRole.centro.value, UserRole.cosam.value}
     allowed = {
         UserRole.admin.value: ("/admin/", "/formularios", "/api/"),
         UserRole.cosam.value: ("/cosam/", "/formularios", "/api/"),
         UserRole.centro.value: ("/centro/", "/", "/formularios", "/api/"),
     }.get(role, ("/",))
-    return next_path == "/" or any(next_path.startswith(p) for p in allowed)
+    return any(next_path.startswith(p) for p in allowed)
 
 
 def _cookie_kwargs():
