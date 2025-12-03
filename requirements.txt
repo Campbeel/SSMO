@@ -5,9 +5,5 @@ PyJWT[crypto]==2.9.0
 cryptography==43.0.1
 reportlab==4.0.9
 gunicorn==22.0.0
-<<<<<<< HEAD
 # Para Postgres en Render con Python 3.11
 psycopg2-binary==2.9.9
-=======
-psycopg[binary]==3.3.1
->>>>>>> ea55c4ca286304742afb5461885c5b45256676f9
