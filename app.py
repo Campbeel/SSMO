@@ -32,10 +32,18 @@ BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = Path(os.environ.get("DATABASE_PATH", BASE_DIR / "ssmo.db"))
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
+def _normalize_db_uri(uri: str) -> str:
+    """Ajusta el URI para usar el driver psycopg (v3) cuando es Postgres."""
+    if uri.startswith("postgres://"):
+        return uri.replace("postgres://", "postgresql+psycopg://", 1)
+    if uri.startswith("postgresql://") and "+psycopg" not in uri and "+psycopg2" not in uri:
+        return uri.replace("postgresql://", "postgresql+psycopg://", 1)
+    return uri
+
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.config.update(
     SECRET_KEY=os.environ.get("FLASK_SECRET_KEY", "cambio-esto-en-produccion"),
-    SQLALCHEMY_DATABASE_URI=DATABASE_URL or f"sqlite:///{DATABASE_PATH}",
+    SQLALCHEMY_DATABASE_URI=_normalize_db_uri(DATABASE_URL) if DATABASE_URL else f"sqlite:///{DATABASE_PATH}",
     SQLALCHEMY_TRACK_MODIFICATIONS=False,
 )
 app.config["DEV_SHOW_USER"] = os.environ.get("DEV_SHOW_USER", "0") in {"1", "true", "TRUE", "yes", "on"}
