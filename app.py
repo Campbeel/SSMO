@@ -33,11 +33,12 @@ DATABASE_PATH = Path(os.environ.get("DATABASE_PATH", BASE_DIR / "ssmo.db"))
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def _normalize_db_uri(uri: str) -> str:
-    """Ajusta el URI para usar el driver psycopg (v3) cuando es Postgres."""
+    """Ajusta el URI para usar un driver disponible cuando es Postgres."""
     if uri.startswith("postgres://"):
-        return uri.replace("postgres://", "postgresql+psycopg://", 1)
-    if uri.startswith("postgresql://") and "+psycopg" not in uri and "+psycopg2" not in uri:
-        return uri.replace("postgresql://", "postgresql+psycopg://", 1)
+        uri = uri.replace("postgres://", "postgresql://", 1)
+    # Si no se especifica driver, usamos pg8000 (pure Python, funciona en Render)
+    if uri.startswith("postgresql://") and "+pg8000" not in uri:
+        uri = uri.replace("postgresql://", "postgresql+pg8000://", 1)
     return uri
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
