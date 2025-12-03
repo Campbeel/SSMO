@@ -801,9 +801,9 @@ def admin_user_delete(user_id: int):
 
 
 @app.route("/admin/ges", methods=["GET", "POST"]) 
-@login_required([UserRole.cosam])
+@login_required([UserRole.admin, UserRole.cosam])
 def admin_ges():
-    # Solo administradores COSAM
+    # Solo administradores maestros (COSAM o admin)
     user = getattr(g, "current_user", None)
     if not user or not getattr(user, "is_master_admin", False):
         abort(403)
