@@ -1,0 +1,65 @@
+erDiagram
+  ROLES {
+    INTEGER id_rol PK
+    VARCHAR nombre_rol
+  }
+
+  USUARIOS {
+    INTEGER id_usuario PK
+    VARCHAR email
+    VARCHAR password_hash
+    VARCHAR dominio
+    INTEGER rol FK
+    BOOLEAN es_medico
+  }
+
+  PACIENTES {
+    INTEGER id_paciente PK
+    VARCHAR nombre
+    VARCHAR rut
+    DATE fecha_nacimiento
+    VARCHAR direccion
+    VARCHAR contacto
+  }
+
+  FICHAS_SIC {
+    INTEGER id_ficha PK
+    INTEGER id_paciente FK
+    INTEGER id_profesional FK
+    INTEGER id_usuario_centro FK
+    INTEGER id_usuario_cosam FK "opcional"
+    VARCHAR estado
+    VARCHAR prioridad_sugerida
+    VARCHAR prioridad_definitiva
+    TEXT hipotesis_diagnostica
+    TEXT fundamento
+    TEXT examenes
+    TEXT patologias_ges
+    DATETIME fecha_creacion
+  }
+
+  AGENDA {
+    INTEGER id_agenda PK
+    INTEGER id_ficha FK
+    DATE fecha
+    TIME hora
+    TEXT notas
+  }
+
+  REPORTES_LOG {
+    INTEGER id_reporte PK
+    INTEGER id_usuario FK
+    INTEGER id_ficha FK "opcional"
+    VARCHAR tipo_grafico
+    TEXT filtros
+    DATETIME fecha_generacion
+  }
+
+  ROLES ||--o{ USUARIOS : "rol"
+  USUARIOS ||--o{ FICHAS_SIC : "profesional"
+  USUARIOS ||--o{ FICHAS_SIC : "usuario_centro"
+  USUARIOS ||--o{ FICHAS_SIC : "usuario_cosam"
+  USUARIOS ||--o{ REPORTES_LOG : "autor"
+  PACIENTES ||--o{ FICHAS_SIC : "caso"
+  FICHAS_SIC ||--o{ AGENDA : "agenda"
+  FICHAS_SIC ||--o{ REPORTES_LOG : "reportes"

@@ -58,3 +58,5 @@ Para ejecutar las pruebas manuales, puede completar el formulario y verificar qu
 - Exportar esquema SQL actual de `ssmo.db`:
   - `python scripts/dump_schema.py`
   - Resultado: `docs/schema_main.sql`
+
+#
