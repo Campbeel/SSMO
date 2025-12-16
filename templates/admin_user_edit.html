@@ -3,7 +3,7 @@
 {% block title %}Editar usuario - SSMO{% endblock %}
 
 {% block content %}
-  {% set doctor_enabled = user.doctor_name and user.role in doctor_roles %}
+  {% set doctor_enabled = user.is_doctor and user.role in doctor_roles %}
   <h2>Editar usuario</h2>
   <form method="post" class="formulario" id="user-edit-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />

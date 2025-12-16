@@ -428,6 +428,28 @@ a.secondary:hover {
   align-items: center;
   margin-bottom: 1.5rem;
 }
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+  margin-bottom: 1rem;
+}
+.filter-control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 200px;
+}
+.filter-control span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.filter-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
 
 .entries-table {
   width: 100%;
@@ -474,6 +496,20 @@ a.secondary:hover {
   .actions {
     flex-direction: column;
     align-items: stretch;
+  }
+  .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .filter-control {
+    width: 100%;
+  }
+  .filter-actions {
+    width: 100%;
+  }
+  .filter-actions .secondary {
+    width: 100%;
+    text-align: center;
   }
 }
 

@@ -10,6 +10,30 @@
         <p>Citas agendadas.</p>
       </div>
     </header>
+    <form class="filter-bar" method="get">
+      <label class="filter-control">
+        <span>Box</span>
+        <select name="box">
+          <option value="">Todos los box</option>
+          {% for place in available_places %}
+            <option value="{{ place }}" {% if box_filter == place %}selected{% endif %}>{{ place }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="filter-control">
+        <span>Médico</span>
+        <select name="doctor">
+          <option value="">Todos los médicos</option>
+          {% for doc in available_doctors %}
+            <option value="{{ doc }}" {% if doctor_filter == doc %}selected{% endif %}>{{ doc }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="filter-actions">
+        <button type="submit" class="secondary">Aplicar</button>
+        <a class="secondary" href="{{ url_for('cosam_agenda') }}">Limpiar</a>
+      </div>
+    </form>
     {% if items %}
       <table class="entries-table">
         <thead>
@@ -41,8 +65,13 @@
         </tbody>
       </table>
     {% else %}
-      <p class="empty-state">Sin citas en el período.</p>
+      <p class="empty-state">
+        {% if box_filter or doctor_filter %}
+          Sin citas para los filtros seleccionados.
+        {% else %}
+          Sin citas en el período.
+        {% endif %}
+      </p>
     {% endif %}
   </section>
 {% endblock %}
-

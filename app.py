@@ -18,7 +18,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from flask import Flask, flash, redirect, render_template, request, url_for, jsonify, abort, session, make_response, g
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import ForeignKey, func, case
+from sqlalchemy import ForeignKey, func, case, or_
 from argon2 import PasswordHasher
 import jwt
 from cryptography.hazmat.primitives import serialization
@@ -88,6 +88,7 @@ class User(db.Model):
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     # Super administrador (puede gestionar usuarios de todos los dominios)
     is_master_admin = db.Column(db.Boolean, default=False, nullable=False)
+    is_doctor = db.Column(db.Boolean, default=False, nullable=False, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     doctor_name = db.Column(db.String(160))
     doctor_rut = db.Column(db.String(20))
@@ -595,6 +596,9 @@ def create_user_cli():
         cur.execute("PRAGMA table_info('users')"); cols = [r[1] for r in cur.fetchall()]
         if 'is_master_admin' not in cols:
             cur.execute("ALTER TABLE users ADD COLUMN is_master_admin BOOLEAN NOT NULL DEFAULT 0")
+        if 'is_doctor' not in cols:
+            cur.execute("ALTER TABLE users ADD COLUMN is_doctor BOOLEAN NOT NULL DEFAULT 0")
+        cur.execute("CREATE INDEX IF NOT EXISTS ix_users_is_doctor ON users (is_doctor)")
         if 'doctor_name' not in cols:
             cur.execute("ALTER TABLE users ADD COLUMN doctor_name VARCHAR(160)")
         if 'doctor_rut' not in cols:
@@ -631,6 +635,8 @@ def create_user_cli():
         setattr(u, 'is_master_admin', bool(is_master))
     except Exception:
         pass
+    if role in {"centro", "cosam"}:
+        u.is_doctor = bool(doctor_name and doctor_rut)
     if doctor_name:
         u.doctor_name = doctor_name
     if doctor_rut:
@@ -680,8 +686,11 @@ def admin_users():
             u = User(username=username, role=role)
             u.set_password(password)
             if doctor_enabled:
+                u.is_doctor = True
                 u.doctor_name = doctor_name
                 u.doctor_rut = doctor_rut
+            else:
+                u.is_doctor = False
             # Solo master puede marcar como master (no se expone en UI de no-master)
             if is_master and (request.form.get("is_master_admin") == "on"):
                 try:
@@ -754,9 +763,11 @@ def admin_user_edit(user_id: int):
                 u.role = role
                 u.is_active = active
                 if doctor_enabled:
+                    u.is_doctor = True
                     u.doctor_name = doctor_name
                     u.doctor_rut = doctor_rut
                 else:
+                    u.is_doctor = False
                     u.doctor_name = None
                     u.doctor_rut = None
                 if is_master:
@@ -1029,19 +1040,33 @@ def seed_demo_data(password: str):
 @app.route("/cosam/inbox")
 @login_required([UserRole.cosam])
 def cosam_inbox():
+    search = (request.args.get("q") or "").strip()
+    priority_filter = (request.args.get("prioridad") or "").lower()
     porder = case((Case.prioridad == "alto", 0), (Case.prioridad == "medio", 1), else_=2)
-    items = (
-        Case.query.filter(Case.status == "enviado")
-        .order_by(porder, Case.created_at.desc())
-        .all()
+    query = (
+        db.session.query(Case, MedicalForm)
+        .join(MedicalForm, Case.form_id == MedicalForm.id)
+        .filter(Case.status == "enviado")
     )
-    form_map = {
-        f.id: f
-        for f in MedicalForm.query.filter(MedicalForm.id.in_([c.form_id for c in items])).all()
-    }
-    pares = [(c, form_map.get(c.form_id)) for c in items if form_map.get(c.form_id)]
-    high_count = sum(1 for c, _f in pares if (c.prioridad or "").lower() == "alto")
-    return render_template("cosam_inbox.html", casos=pares, high_count=high_count)
+    if priority_filter in {"bajo", "medio", "alto"}:
+        query = query.filter(func.lower(Case.prioridad) == priority_filter)
+    if search:
+        like_pattern = f"%{search.lower()}%"
+        query = query.filter(
+            or_(
+                func.lower(func.coalesce(MedicalForm.nombre, "")).like(like_pattern),
+                func.lower(func.coalesce(MedicalForm.rut, "")).like(like_pattern),
+            )
+        )
+    items = query.order_by(porder, Case.created_at.desc()).all()
+    high_count = sum(1 for c, _f in items if (c.prioridad or "").lower() == "alto")
+    return render_template(
+        "cosam_inbox.html",
+        casos=items,
+        high_count=high_count,
+        search_query=search,
+        prioridad_seleccionada=priority_filter,
+    )
 
 
 @app.route("/cosam/accept/<int:case_id>", methods=["GET", "POST"])
@@ -1066,17 +1091,38 @@ def cosam_accept(case_id: int):
 @app.route("/cosam/pacientes")
 @login_required([UserRole.cosam])
 def cosam_pacientes():
-    from sqlalchemy import case
+    search = (request.args.get("q") or "").strip()
+    priority_filter = (request.args.get("prioridad") or "").lower()
     porder = case((Case.prioridad == "alto", 0), (Case.prioridad == "medio", 1), else_=2)
-    casos = (
-        Case.query.filter(Case.status == "aceptado", Case.atendido == False)
-        .order_by(porder, Case.created_at.desc())
-        .all()
+    query = (
+        db.session.query(Case, MedicalForm)
+        .join(MedicalForm, Case.form_id == MedicalForm.id)
+        .filter(Case.status == "aceptado", Case.atendido == False)
     )
-    forms = {f.id: f for f in MedicalForm.query.filter(MedicalForm.id.in_([c.form_id for c in casos])).all()}
-    appts = {a.case_id: a for a in Appointment.query.filter(Appointment.case_id.in_([c.id for c in casos])).all()}
-    triples = [(c, forms.get(c.form_id), appts.get(c.id)) for c in casos]
-    return render_template("patients_list.html", casos=triples)
+    if priority_filter in {"bajo", "medio", "alto"}:
+        query = query.filter(func.lower(Case.prioridad) == priority_filter)
+    if search:
+        like_pattern = f"%{search.lower()}%"
+        query = query.filter(
+            or_(
+                func.lower(func.coalesce(MedicalForm.nombre, "")).like(like_pattern),
+                func.lower(func.coalesce(MedicalForm.rut, "")).like(like_pattern),
+            )
+        )
+    casos_forms = query.order_by(porder, Case.created_at.desc()).all()
+    case_ids = [c.id for c, _ in casos_forms]
+    appts = (
+        {a.case_id: a for a in Appointment.query.filter(Appointment.case_id.in_(case_ids)).all()}
+        if case_ids
+        else {}
+    )
+    triples = [(c, f, appts.get(c.id)) for c, f in casos_forms]
+    return render_template(
+        "patients_list.html",
+        casos=triples,
+        search_query=search,
+        prioridad_seleccionada=priority_filter,
+    )
 
 
 @app.route("/cosam/agenda")
@@ -1085,19 +1131,45 @@ def cosam_agenda():
     # próximas 30 días
     now = datetime.utcnow()
     horizon = now + timedelta(days=30)
-    aps = (Appointment.query
-           .filter(Appointment.scheduled_at >= now, Appointment.scheduled_at <= horizon)
-           .order_by(Appointment.scheduled_at.asc())
-           .all())
-    case_map = {c.id: c for c in Case.query.filter(Case.id.in_([a.case_id for a in aps])).all()}
-    form_map = {f.id: f for f in MedicalForm.query.filter(MedicalForm.id.in_([case_map[a.case_id].form_id for a in aps if a.case_id in case_map])).all()}
+    aps_all = (
+        Appointment.query
+        .filter(Appointment.scheduled_at >= now, Appointment.scheduled_at <= horizon)
+        .order_by(Appointment.scheduled_at.asc())
+        .all()
+    )
+    available_doctors = sorted({a.doctor for a in aps_all if a.doctor})
+    available_places = sorted({a.place for a in aps_all if a.place})
+    box_filter = (request.args.get("box") or "").strip()
+    doctor_filter = (request.args.get("doctor") or "").strip()
+    aps = aps_all
+    if doctor_filter and doctor_filter in available_doctors:
+        aps = [a for a in aps if (a.doctor or "") == doctor_filter]
+    else:
+        doctor_filter = ""
+    if box_filter and box_filter in available_places:
+        aps = [a for a in aps if (a.place or "") == box_filter]
+    else:
+        box_filter = ""
+    case_ids = [a.case_id for a in aps]
+    case_map = {c.id: c for c in Case.query.filter(Case.id.in_(case_ids)).all()} if case_ids else {}
+    form_map: Dict[int, MedicalForm] = {}
+    if case_map:
+        form_ids = [case_map[a.case_id].form_id for a in aps if a.case_id in case_map]
+        form_map = {f.id: f for f in MedicalForm.query.filter(MedicalForm.id.in_(form_ids)).all()}
     items = []
     for a in aps:
         c = case_map.get(a.case_id)
         f = form_map.get(c.form_id) if c else None
         if f:
             items.append((a, c, f))
-    return render_template("cosam_agenda.html", items=items)
+    return render_template(
+        "cosam_agenda.html",
+        items=items,
+        available_places=available_places,
+        available_doctors=available_doctors,
+        box_filter=box_filter,
+        doctor_filter=doctor_filter,
+    )
 
 
 @app.route("/cosam/reschedule/<int:case_id>", methods=["GET", "POST"]) 
@@ -2068,6 +2140,12 @@ def _rut_valido(rut: str) -> bool:
 @app.route("/", methods=["GET", "POST"])
 @login_required([UserRole.centro, UserRole.cosam])
 def formulario():
+    prefill_id = request.args.get("prefill_from")
+    user = getattr(g, "current_user", None)
+    if prefill_id and user and getattr(user, "role", None) == UserRole.cosam.value:
+        if not getattr(user, "is_doctor", False):
+            flash("Solo usuarios médicos pueden reenviar fichas.", "error")
+            return redirect(url_for("cosam_pacientes"))
     if request.method == "POST":
         datos = _extraer_datos_formulario(request.form)
         errores = _validar_datos(datos)
@@ -2119,8 +2197,6 @@ def formulario():
         pass
     # Prefill desde ficha existente (solo COSAM)
     try:
-        prefill_id = request.args.get("prefill_from")
-        user = getattr(g, "current_user", None)
         if prefill_id and user and getattr(user, "role", None) == UserRole.cosam.value:
             src = MedicalForm.query.get(int(prefill_id))
             if src:
@@ -2455,6 +2531,9 @@ def _security_and_csrf():
             cur.execute("PRAGMA table_info('users')"); cols = [r[1] for r in cur.fetchall()]
             if 'is_master_admin' not in cols:
                 cur.execute("ALTER TABLE users ADD COLUMN is_master_admin BOOLEAN NOT NULL DEFAULT 0")
+            if 'is_doctor' not in cols:
+                cur.execute("ALTER TABLE users ADD COLUMN is_doctor BOOLEAN NOT NULL DEFAULT 0")
+            cur.execute("CREATE INDEX IF NOT EXISTS ix_users_is_doctor ON users (is_doctor)")
             if 'doctor_name' not in cols:
                 cur.execute("ALTER TABLE users ADD COLUMN doctor_name VARCHAR(160)")
             if 'doctor_rut' not in cols:

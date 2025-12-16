@@ -38,6 +38,25 @@
         <p>Ordenados por prioridad.</p>
       </div>
     </header>
+    <form class="filter-bar" method="get">
+      <label class="filter-control">
+        <span>Buscar paciente</span>
+        <input type="search" name="q" value="{{ search_query or '' }}" placeholder="Nombre o RUT" />
+      </label>
+      <label class="filter-control">
+        <span>Prioridad</span>
+        <select name="prioridad">
+          <option value="">Todas las prioridades</option>
+          <option value="alto" {% if prioridad_seleccionada == 'alto' %}selected{% endif %}>alta</option>
+          <option value="medio" {% if prioridad_seleccionada == 'medio' %}selected{% endif %}>media</option>
+          <option value="bajo" {% if prioridad_seleccionada == 'bajo' %}selected{% endif %}>baja</option>
+        </select>
+      </label>
+      <div class="filter-actions">
+        <button type="submit" class="secondary">Aplicar</button>
+        <a class="secondary" href="{{ url_for('cosam_pacientes') }}">Limpiar</a>
+      </div>
+    </form>
     {% if casos %}
       <table class="entries-table">
         <thead>
@@ -71,7 +90,9 @@
                   {% else %}
                     <a class="primary" href="{{ url_for('cosam_schedule', case_id=c.id) }}">Agendar</a>
                   {% endif %}
-                  <a class="secondary" href="{{ url_for('formulario', prefill_from=f.id) }}">Reenviar</a>
+                  {% if current_user and current_user.is_doctor %}
+                    <a class="secondary" href="{{ url_for('formulario', prefill_from=f.id) }}">Reenviar</a>
+                  {% endif %}
                 </div>
                 {% if ap %}
                   <div class="actions-info">
@@ -86,7 +107,13 @@
         </tbody>
       </table>
     {% else %}
-      <p class="empty-state">Sin pacientes activos.</p>
+      <p class="empty-state">
+        {% if search_query or prioridad_seleccionada %}
+          Sin pacientes que coincidan con los filtros.
+        {% else %}
+          Sin pacientes activos.
+        {% endif %}
+      </p>
     {% endif %}
   </section>
   <script>

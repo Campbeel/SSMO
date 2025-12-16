@@ -93,6 +93,7 @@
       <tr>
         <th>Usuario</th>
         <th>Rol</th>
+        <th>Médico</th>
         <th>Master</th>
         <th>Activo</th>
         <th>Creado</th>
@@ -104,6 +105,7 @@
         <tr>
           <td>{{ u.username }}</td>
           <td>{{ u.role }}</td>
+          <td>{{ 'sí' if u.is_doctor else 'no' }}</td>
           <td>{{ 'sí' if u.is_master_admin else 'no' }}</td>
           <td>{{ 'sí' if u.is_active else 'no' }}</td>
           <td>{{ u.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
