@@ -15,9 +15,9 @@
       <label>
         <span>Rol</span>
         <select name="role" required>
-          <option value="centro" {% if user.role=='centro' %}selected{% endif %}>centro</option>
-          <option value="cosam" {% if user.role=='cosam' %}selected{% endif %}>cosam</option>
-          <option value="admin" {% if user.role=='admin' %}selected{% endif %}>admin</option>
+          {% for opt in allowed_roles %}
+            <option value="{{ opt }}" {% if user.role==opt %}selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
         </select>
       </label>
       <label>

@@ -20,10 +20,12 @@ from flask import Flask, flash, redirect, render_template, request, url_for, jso
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import ForeignKey, func, case, or_, text, inspect
 from sqlalchemy.engine import Engine
+from sqlalchemy.orm import synonym
 from argon2 import PasswordHasher
 import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
+from cryptography.fernet import Fernet
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
@@ -149,6 +151,49 @@ APPOINTMENT_PLACES = ["Box 1", "Box 2", "Box 3", "Box 4", "Box 5"]
 APPOINTMENT_START_TIME = "08:00"
 APPOINTMENT_END_TIME = "19:00"
 APPOINTMENT_SLOT_MINUTES = 15
+_ENC_PREFIX = "enc:"
+
+def _encryption_key() -> Optional[bytes]:
+    key = os.environ.get("DATA_ENCRYPTION_KEY")
+    if not key:
+        return None
+    try:
+        return key.encode()
+    except Exception:
+        return None
+
+
+def _encrypt_value(val: Optional[str]) -> Optional[str]:
+    if val is None:
+        return None
+    val = str(val)
+    key = _encryption_key()
+    if not key:
+        return val
+    if val.startswith(_ENC_PREFIX):
+        return val
+    try:
+        token = Fernet(key).encrypt(val.encode())
+        return _ENC_PREFIX + token.decode()
+    except Exception:
+        return val
+
+
+def _decrypt_value(val: Optional[str]) -> Optional[str]:
+    if val is None:
+        return None
+    if not isinstance(val, str):
+        return val
+    key = _encryption_key()
+    if not key:
+        return val
+    if not val.startswith(_ENC_PREFIX):
+        return val
+    token = val[len(_ENC_PREFIX):].encode()
+    try:
+        return Fernet(key).decrypt(token).decode()
+    except Exception:
+        return val
 
 # Eventos de seguridad (in-memory fallback si DB no está lista)
 def _log_security_event(event: str, detail: str = "", user: Optional[User] = None) -> None:
@@ -228,8 +273,16 @@ class Appointment(db.Model):
     scheduled_at = db.Column(db.DateTime, nullable=False)
     doctor = db.Column("professional", db.String(160))
     place = db.Column(db.String(160))
-    notes = db.Column(db.Text)
+    _notes = db.Column("notes", db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    def _get_notes(self):
+        return _decrypt_value(self._notes)
+
+    def _set_notes(self, value):
+        self._notes = _encrypt_value(value)
+
+    notes = synonym("_notes", descriptor=property(_get_notes, _set_notes))
 
 
 class ReturnEvent(db.Model):
@@ -448,7 +501,6 @@ def login_required(roles: Optional[List[UserRole]] = None):
         return wrapper
     return decorator
 
-@dataclass
 class MedicalForm(db.Model):
     """Modelo que representa un formulario médico almacenado."""
 
@@ -459,7 +511,7 @@ class MedicalForm(db.Model):
 
     servicio_salud: str = db.Column(db.String(120), nullable=False, default="Metropolitano Oriente")
     establecimiento: str = db.Column(db.String(120))
-    especialidad: str = db.Column(db.String(120))
+    _especialidad: str = db.Column("especialidad", db.String(120))
     unidad: str = db.Column(db.String(120))
     nombre: str = db.Column(db.String(160), nullable=False)
     historia_clinica: str = db.Column(db.String(120))
@@ -468,25 +520,112 @@ class MedicalForm(db.Model):
     sexo: str = db.Column(db.String(20))
     fecha_nacimiento: str = db.Column(db.String(20))
     edad: str = db.Column(db.String(20))
-    domicilio: str = db.Column(db.String(160))
+    _domicilio: str = db.Column("domicilio", db.String(160))
     comuna: str = db.Column(db.String(80))
-    telefono1: str = db.Column(db.String(40))
-    telefono2: str = db.Column(db.String(40))
-    correo1: str = db.Column(db.String(120))
-    correo2: str = db.Column(db.String(120))
+    _telefono1: str = db.Column("telefono1", db.String(40))
+    _telefono2: str = db.Column("telefono2", db.String(40))
+    _correo1: str = db.Column("correo1", db.String(120))
+    _correo2: str = db.Column("correo2", db.String(120))
     establecimiento_derivacion: str = db.Column(db.String(160))
     grupo_poblacional: str = db.Column(db.String(40))
-    tipo_consulta: str = db.Column(db.String(40))
+    _tipo_consulta: str = db.Column("tipo_consulta", db.String(40))
     tiene_terapias: str = db.Column(db.String(10))
     terapias_otro: str = db.Column(db.Text)
-    hipotesis_diagnostico: str = db.Column(db.Text)
+    _hipotesis_diagnostico: str = db.Column("hipotesis_diagnostico", db.Text)
     es_ges: str = db.Column(db.String(10))
-    fundamento_diagnostico: str = db.Column(db.Text)
-    examenes_realizados: str = db.Column(db.Text)
+    _fundamento_diagnostico: str = db.Column("fundamento_diagnostico", db.Text)
+    _examenes_realizados: str = db.Column("examenes_realizados", db.Text)
     nombre_medico: str = db.Column(db.String(160))
     rut_medico: str = db.Column(db.String(20))
-    patologias_ges: str = db.Column(db.Text)
+    _patologias_ges: str = db.Column("patologias_ges", db.Text)
 
+    def _get_especialidad(self):
+        return _decrypt_value(self._especialidad)
+
+    def _set_especialidad(self, value):
+        self._especialidad = _encrypt_value(value)
+
+    especialidad = synonym("_especialidad", descriptor=property(_get_especialidad, _set_especialidad))
+
+    def _get_domicilio(self):
+        return _decrypt_value(self._domicilio)
+
+    def _set_domicilio(self, value):
+        self._domicilio = _encrypt_value(value)
+
+    domicilio = synonym("_domicilio", descriptor=property(_get_domicilio, _set_domicilio))
+
+    def _get_telefono1(self):
+        return _decrypt_value(self._telefono1)
+
+    def _set_telefono1(self, value):
+        self._telefono1 = _encrypt_value(value)
+
+    telefono1 = synonym("_telefono1", descriptor=property(_get_telefono1, _set_telefono1))
+
+    def _get_telefono2(self):
+        return _decrypt_value(self._telefono2)
+
+    def _set_telefono2(self, value):
+        self._telefono2 = _encrypt_value(value)
+
+    telefono2 = synonym("_telefono2", descriptor=property(_get_telefono2, _set_telefono2))
+
+    def _get_correo1(self):
+        return _decrypt_value(self._correo1)
+
+    def _set_correo1(self, value):
+        self._correo1 = _encrypt_value(value)
+
+    correo1 = synonym("_correo1", descriptor=property(_get_correo1, _set_correo1))
+
+    def _get_correo2(self):
+        return _decrypt_value(self._correo2)
+
+    def _set_correo2(self, value):
+        self._correo2 = _encrypt_value(value)
+
+    correo2 = synonym("_correo2", descriptor=property(_get_correo2, _set_correo2))
+
+    def _get_tipo_consulta(self):
+        return _decrypt_value(self._tipo_consulta)
+
+    def _set_tipo_consulta(self, value):
+        self._tipo_consulta = _encrypt_value(value)
+
+    tipo_consulta = synonym("_tipo_consulta", descriptor=property(_get_tipo_consulta, _set_tipo_consulta))
+
+    def _get_hipotesis_diagnostico(self):
+        return _decrypt_value(self._hipotesis_diagnostico)
+
+    def _set_hipotesis_diagnostico(self, value):
+        self._hipotesis_diagnostico = _encrypt_value(value)
+
+    hipotesis_diagnostico = synonym("_hipotesis_diagnostico", descriptor=property(_get_hipotesis_diagnostico, _set_hipotesis_diagnostico))
+
+    def _get_fundamento_diagnostico(self):
+        return _decrypt_value(self._fundamento_diagnostico)
+
+    def _set_fundamento_diagnostico(self, value):
+        self._fundamento_diagnostico = _encrypt_value(value)
+
+    fundamento_diagnostico = synonym("_fundamento_diagnostico", descriptor=property(_get_fundamento_diagnostico, _set_fundamento_diagnostico))
+
+    def _get_examenes_realizados(self):
+        return _decrypt_value(self._examenes_realizados)
+
+    def _set_examenes_realizados(self, value):
+        self._examenes_realizados = _encrypt_value(value)
+
+    examenes_realizados = synonym("_examenes_realizados", descriptor=property(_get_examenes_realizados, _set_examenes_realizados))
+
+    def _get_patologias_ges_raw(self):
+        return _decrypt_value(self._patologias_ges)
+
+    def _set_patologias_ges(self, value):
+        self._patologias_ges = _encrypt_value(value)
+
+    patologias_ges = synonym("_patologias_ges", descriptor=property(_get_patologias_ges_raw, _set_patologias_ges))
     def patologias_ges_lista(self) -> List[str]:
         if not self.patologias_ges:
             return []
@@ -754,7 +893,7 @@ def admin_users():
     current = g.current_user
     is_master = bool(getattr(current, 'is_master_admin', False))
     domain = _domain(current.username)
-    allowed_roles = ["centro", "cosam", "admin"] if is_master else ["centro", "cosam"]
+    allowed_roles = ["centro", "cosam", "admin"] if is_master else (["cosam", "admin"] if domain.endswith("cosam.cl") else ["centro", "admin"])
     domain_suffix = f"@{domain}" if (domain and not is_master) else ""
     if request.method == "POST":
         username = (request.form.get("username") or "").strip()
@@ -829,6 +968,8 @@ def admin_user_edit(user_id: int):
             return ''
     current = g.current_user
     is_master = bool(getattr(current, 'is_master_admin', False))
+    domain = _domain(current.username)
+    allowed_roles = ["centro", "cosam", "admin"] if is_master else (["cosam", "admin"] if domain.endswith("cosam.cl") else ["centro", "admin"])
     if not is_master and _domain(u.username) != _domain(current.username):
         abort(403)
     if request.method == "POST":
@@ -841,18 +982,21 @@ def admin_user_edit(user_id: int):
         doctor_rut = (request.form.get("doctor_rut") or "").strip()
         if role not in {"centro", "cosam"}:
             doctor_enabled = False
-        if not _is_valid_email(email) or role not in {"admin", "cosam", "centro"}:
+        if role not in allowed_roles:
+            flash("No tiene permiso para asignar ese rol", "error")
+            return render_template("admin_user_edit.html", user=u, is_master=is_master, doctor_roles=["centro", "cosam"], allowed_roles=allowed_roles)
+        if not _is_valid_email(email):
             flash("Datos inválidos", "error")
         else:
             if not is_master and _domain(email) != _domain(current.username):
                 flash("Solo puede actualizar usuarios de su propio dominio.", "error")
-                return render_template("admin_user_edit.html", user=u, is_master=is_master, doctor_roles=["centro", "cosam"])
+                return render_template("admin_user_edit.html", user=u, is_master=is_master, doctor_roles=["centro", "cosam"], allowed_roles=allowed_roles)
             if doctor_enabled and (not doctor_name or not doctor_rut):
                 flash("Debe ingresar el nombre y RUT del médico.", "error")
-                return render_template("admin_user_edit.html", user=u, is_master=is_master, doctor_roles=["centro", "cosam"])
+                return render_template("admin_user_edit.html", user=u, is_master=is_master, doctor_roles=["centro", "cosam"], allowed_roles=allowed_roles)
             if doctor_enabled and not _rut_valido(doctor_rut):
                 flash("El RUT del médico no es válido.", "error")
-                return render_template("admin_user_edit.html", user=u, is_master=is_master, doctor_roles=["centro", "cosam"])
+                return render_template("admin_user_edit.html", user=u, is_master=is_master, doctor_roles=["centro", "cosam"], allowed_roles=allowed_roles)
             if email != u.username and User.query.filter_by(username=email).first():
                 flash("Ya existe un usuario con ese correo", "error")
             else:
@@ -878,7 +1022,7 @@ def admin_user_edit(user_id: int):
                 _log_security_event("user_updated", f"usuario={u.username}", user=current)
                 flash("Usuario actualizado", "success")
                 return redirect(url_for("admin_users"))
-    return render_template("admin_user_edit.html", user=u, is_master=is_master, doctor_roles=["centro", "cosam"])
+    return render_template("admin_user_edit.html", user=u, is_master=is_master, doctor_roles=["centro", "cosam"], allowed_roles=allowed_roles)
 
 
 @app.route("/admin/users/<int:user_id>/delete", methods=["POST"]) 
@@ -2239,6 +2383,7 @@ def _rut_valido(rut: str) -> bool:
 @app.route("/", methods=["GET", "POST"])
 @login_required([UserRole.centro, UserRole.cosam])
 def formulario():
+    # Prefill seguro (solo médicos COSAM)
     prefill_id = request.args.get("prefill_from")
     user = getattr(g, "current_user", None)
     if prefill_id and user and getattr(user, "role", None) == UserRole.cosam.value:
@@ -2261,6 +2406,22 @@ def formulario():
         detalle_otro = datos.pop("tipo_consulta_detalle", "")
         if datos.get("tipo_consulta") == "Otro" and detalle_otro:
             datos["tipo_consulta"] = f"Otro - {detalle_otro}"
+        # Encriptar campos sensibles al persistir
+        for key in (
+            "correo1",
+            "correo2",
+            "telefono1",
+            "telefono2",
+            "domicilio",
+            "tipo_consulta",
+            "hipotesis_diagnostico",
+            "fundamento_diagnostico",
+            "examenes_realizados",
+            "patologias_ges",
+            "especialidad",
+        ):
+            if key in datos:
+                datos[key] = _encrypt_value(datos.get(key))
         registro = MedicalForm(**datos)
         db.session.add(registro)
         db.session.commit()
