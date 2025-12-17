@@ -18,7 +18,8 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from flask import Flask, flash, redirect, render_template, request, url_for, jsonify, abort, session, make_response, g
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import ForeignKey, func, case, or_
+from sqlalchemy import ForeignKey, func, case, or_, text, inspect
+from sqlalchemy.engine import Engine
 from argon2 import PasswordHasher
 import jwt
 from cryptography.hazmat.primitives import serialization
@@ -46,6 +47,7 @@ app.config.update(
     SECRET_KEY=os.environ.get("FLASK_SECRET_KEY", "cambio-esto-en-produccion"),
     SQLALCHEMY_DATABASE_URI=_normalize_db_uri(DATABASE_URL) if DATABASE_URL else f"sqlite:///{DATABASE_PATH}",
     SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
 )
 app.config["DEV_SHOW_USER"] = os.environ.get("DEV_SHOW_USER", "0") in {"1", "true", "TRUE", "yes", "on"}
 # Flags de despliegue
@@ -66,11 +68,105 @@ if app.config["TRUST_PROXY_HEADERS"]:
 
 db = SQLAlchemy(app)
 
+def _bootstrap_migrations(engine: Engine) -> None:
+    """Pequeñas migraciones en caliente para esquemas antiguos."""
+    dialect = (engine.dialect.name or "").lower()
+    if dialect.startswith("sqlite"):
+        conn = engine.raw_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("PRAGMA table_info('users')")
+            cols = [r[1] for r in cur.fetchall()]
+            if "is_master_admin" not in cols:
+                cur.execute("ALTER TABLE users ADD COLUMN is_master_admin BOOLEAN NOT NULL DEFAULT 0")
+            if "is_doctor" not in cols:
+                cur.execute("ALTER TABLE users ADD COLUMN is_doctor BOOLEAN NOT NULL DEFAULT 0")
+            cur.execute("CREATE INDEX IF NOT EXISTS ix_users_is_doctor ON users (is_doctor)")
+            if "doctor_name" not in cols:
+                cur.execute("ALTER TABLE users ADD COLUMN doctor_name VARCHAR(160)")
+            if "doctor_rut" not in cols:
+                cur.execute("ALTER TABLE users ADD COLUMN doctor_rut VARCHAR(20)")
+            cur.execute("CREATE TABLE IF NOT EXISTS security_events ("
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                        "event VARCHAR(80) NOT NULL,"
+                        "detail TEXT,"
+                        "user_id INTEGER,"
+                        "ip VARCHAR(64),"
+                        "created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
+            cur.execute("CREATE INDEX IF NOT EXISTS ix_security_events_event ON security_events (event)")
+            cur.execute("CREATE INDEX IF NOT EXISTS ix_security_events_created_at ON security_events (created_at)")
+            conn.commit()
+        except Exception as exc:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            try:
+                app.logger.warning("SQLite bootstrap failed: %s", exc)
+            except Exception:
+                pass
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        return
+    if dialect.startswith("postgres"):
+        try:
+            with engine.begin() as conn:
+                inspector = inspect(conn)
+                cols = {c["name"] for c in inspector.get_columns("users")}
+                if "is_master_admin" not in cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_master_admin BOOLEAN NOT NULL DEFAULT FALSE"))
+                if "is_doctor" not in cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_doctor BOOLEAN NOT NULL DEFAULT FALSE"))
+                if "doctor_name" not in cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS doctor_name VARCHAR(160)"))
+                if "doctor_rut" not in cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS doctor_rut VARCHAR(20)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_is_doctor ON users (is_doctor)"))
+                tables = set(inspector.get_table_names())
+                if "security_events" not in tables:
+                    conn.execute(text(
+                        "CREATE TABLE IF NOT EXISTS security_events ("
+                        "id SERIAL PRIMARY KEY,"
+                        "event VARCHAR(80) NOT NULL,"
+                        "detail TEXT,"
+                        "user_id INTEGER,"
+                        "ip VARCHAR(64),"
+                        "created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP)"
+                    ))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_security_events_event ON security_events (event)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_security_events_created_at ON security_events (created_at)"))
+        except Exception as exc:
+            try:
+                app.logger.exception("Postgres bootstrap failed", exc_info=exc)
+            except Exception:
+                pass
+
 APPOINTMENT_DOCTORS = ["Dr. A", "Dr. B", "Dr. C", "Dr. D", "Dr. E"]
 APPOINTMENT_PLACES = ["Box 1", "Box 2", "Box 3", "Box 4", "Box 5"]
 APPOINTMENT_START_TIME = "08:00"
 APPOINTMENT_END_TIME = "19:00"
 APPOINTMENT_SLOT_MINUTES = 15
+
+# Eventos de seguridad (in-memory fallback si DB no está lista)
+def _log_security_event(event: str, detail: str = "", user: Optional[User] = None) -> None:
+    """Registra eventos relevantes de seguridad sin interrumpir el flujo."""
+    try:
+        ev = SecurityEvent(
+            event=(event or "")[:80],
+            detail=detail or None,
+            user_id=getattr(user, "id", None),
+            ip=request.headers.get("X-Forwarded-For", request.remote_addr),
+        )
+        db.session.add(ev)
+        db.session.commit()
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
 
 
 class UserRole(enum.Enum):
@@ -240,6 +336,18 @@ class ReporteLog(db.Model):
 
     usuario = db.relationship("Usuario", back_populates="reportes")
     ficha = db.relationship("FichaSIC", back_populates="reportes")
+
+
+class SecurityEvent(db.Model):
+    __tablename__ = "security_events"
+    id = db.Column(db.Integer, primary_key=True)
+    event = db.Column(db.String(80), nullable=False, index=True)
+    detail = db.Column(db.Text)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    ip = db.Column(db.String(64))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    user = db.relationship("User")
 
 
 @functools.lru_cache(maxsize=1)
@@ -562,6 +670,7 @@ def login():
         password = request.form.get("password") or ""
         u = User.query.filter_by(username=username).first()
         if not u or not u.verify_password(password) or not u.is_active:
+            _log_security_event("login_failed", f"usuario={username}", user=None)
             flash("Credenciales inválidas", "error")
             return render_template("login.html")
         token = _issue_jwt(u)
@@ -569,11 +678,13 @@ def login():
         requested = request.args.get("next")
         target = requested if _is_next_allowed_for_role(requested, u.role) else _role_default_target(u.role)
         # Persistir identidad en sesión del servidor (además del JWT)
+        session.permanent = True
         session["uid"] = u.id
         session["role"] = u.role
         resp = make_response(redirect(target))
         resp.set_cookie(_AUTH_COOKIE, token, **_cookie_kwargs())
         flash(f"Sesión iniciada como {u.username} ({u.role})", "success")
+        _log_security_event("login_success", f"usuario={u.username}", user=u)
         return resp
     return render_template("login.html")
 
@@ -590,22 +701,7 @@ def logout():
 def create_user_cli():
     import getpass
     db.create_all()
-    # asegurar columna is_master_admin para CLI
-    try:
-        conn = db.engine.raw_connection(); cur = conn.cursor()
-        cur.execute("PRAGMA table_info('users')"); cols = [r[1] for r in cur.fetchall()]
-        if 'is_master_admin' not in cols:
-            cur.execute("ALTER TABLE users ADD COLUMN is_master_admin BOOLEAN NOT NULL DEFAULT 0")
-        if 'is_doctor' not in cols:
-            cur.execute("ALTER TABLE users ADD COLUMN is_doctor BOOLEAN NOT NULL DEFAULT 0")
-        cur.execute("CREATE INDEX IF NOT EXISTS ix_users_is_doctor ON users (is_doctor)")
-        if 'doctor_name' not in cols:
-            cur.execute("ALTER TABLE users ADD COLUMN doctor_name VARCHAR(160)")
-        if 'doctor_rut' not in cols:
-            cur.execute("ALTER TABLE users ADD COLUMN doctor_rut VARCHAR(20)")
-        conn.commit(); conn.close()
-    except Exception:
-        pass
+    _bootstrap_migrations(db.engine)
     username = input("Usuario: ").strip()
     role = (input("Rol [admin|cosam|centro]: ").strip() or "centro").lower()
     is_master_raw = (input("¿Admin maestro? [s/N]: ").strip() or "n").lower()
@@ -699,6 +795,7 @@ def admin_users():
                     pass
             db.session.add(u)
             db.session.commit()
+            _log_security_event("user_created", f"usuario={u.username}", user=current)
             flash("Usuario creado", "success")
     # Listado: master ve todos; no-master solo su dominio
     if is_master:
@@ -778,6 +875,7 @@ def admin_user_edit(user_id: int):
                         return render_template("admin_user_edit.html", user=u, is_master=is_master, doctor_roles=["centro", "cosam"])
                     u.set_password(newpass)
                 db.session.commit()
+                _log_security_event("user_updated", f"usuario={u.username}", user=current)
                 flash("Usuario actualizado", "success")
                 return redirect(url_for("admin_users"))
     return render_template("admin_user_edit.html", user=u, is_master=is_master, doctor_roles=["centro", "cosam"])
@@ -807,6 +905,7 @@ def admin_user_delete(user_id: int):
             abort(403)
     db.session.delete(u)
     db.session.commit()
+    _log_security_event("user_deleted", f"usuario={u.username}", user=current)
     flash("Usuario eliminado", "success")
     return redirect(url_for("admin_users"))
 
@@ -2373,6 +2472,7 @@ def inject_globals():
         items = GESCondition.query.filter_by(active=True).order_by(GESCondition.name.asc()).all()
         patologias = [it.name for it in items] if items else PATOLOGIAS_GES
     except Exception:
+        db.session.rollback()
         patologias = PATOLOGIAS_GES
     return {
         "patologias_catalogo": patologias,
@@ -2382,8 +2482,6 @@ def inject_globals():
         "establecimientos_catalogo": ESTABLECIMIENTOS_POR_COMUNA,
     }
 
-
-_db_initialized = False
 
 _AUTH_COOKIE = "ssmo_auth"
 
@@ -2440,7 +2538,8 @@ def _current_user() -> Optional[User]:
             if u and u.is_active:
                 return u
         except Exception:
-            pass
+            db.session.rollback()
+            return None
     # 2) Fallback a cookie JWT
     token = request.cookies.get(_AUTH_COOKIE)
     if not token:
@@ -2451,7 +2550,11 @@ def _current_user() -> Optional[User]:
     uid = data.get("sub")
     if not uid:
         return None
-    u = User.query.get(int(uid))
+    try:
+        u = User.query.get(int(uid))
+    except Exception:
+        db.session.rollback()
+        return None
     if not u or not u.is_active:
         return None
     # Sincroniza a sesión para próximas peticiones
@@ -2489,7 +2592,12 @@ def _is_next_allowed_for_role(next_path: Optional[str], role: str) -> bool:
 def _cookie_kwargs():
     secure_flag = bool(app.config.get("SESSION_COOKIE_SECURE")) or request.is_secure
     samesite = app.config.get("SESSION_COOKIE_SAMESITE") or "Strict"
-    return {"httponly": True, "secure": secure_flag, "samesite": samesite, "path": "/"}
+    max_age = None
+    try:
+        max_age = int(app.permanent_session_lifetime.total_seconds())
+    except Exception:
+        max_age = None
+    return {"httponly": True, "secure": secure_flag, "samesite": samesite, "path": "/", "max_age": max_age}
 
 
 def login_required(roles: Optional[List[UserRole]] = None):
@@ -2525,22 +2633,7 @@ def _security_and_csrf():
     global _db_initialized
     if not _db_initialized:
         db.create_all()
-        # Pequeña migración runtime: asegurar columna de super admin
-        try:
-            conn = db.engine.raw_connection(); cur = conn.cursor()
-            cur.execute("PRAGMA table_info('users')"); cols = [r[1] for r in cur.fetchall()]
-            if 'is_master_admin' not in cols:
-                cur.execute("ALTER TABLE users ADD COLUMN is_master_admin BOOLEAN NOT NULL DEFAULT 0")
-            if 'is_doctor' not in cols:
-                cur.execute("ALTER TABLE users ADD COLUMN is_doctor BOOLEAN NOT NULL DEFAULT 0")
-            cur.execute("CREATE INDEX IF NOT EXISTS ix_users_is_doctor ON users (is_doctor)")
-            if 'doctor_name' not in cols:
-                cur.execute("ALTER TABLE users ADD COLUMN doctor_name VARCHAR(160)")
-            if 'doctor_rut' not in cols:
-                cur.execute("ALTER TABLE users ADD COLUMN doctor_rut VARCHAR(20)")
-            conn.commit(); conn.close()
-        except Exception:
-            pass
+        _bootstrap_migrations(db.engine)
         _db_initialized = True
     # Semilla inicial de GES si la tabla está vacía
     try:
@@ -2549,7 +2642,7 @@ def _security_and_csrf():
                 db.session.add(GESCondition(name=name, active=True))
             db.session.commit()
     except Exception:
-        pass
+        db.session.rollback()
     # usuario para plantillas
     g.current_user = _current_user()
     # CSRF token por sesión (double submit)
