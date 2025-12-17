@@ -236,40 +236,48 @@
     return '';
   };
 
-  const poblarEstablecimientosEn = (selectEl, comuna, preselect = '') => {
-    if (!selectEl) return;
-    const opciones = EST_CATALOGO[comuna] || [];
-    const current = selectEl.value;
-    selectEl.innerHTML = '';
-    const def = document.createElement('option');
-    def.value = '';
-    def.disabled = true;
-    def.selected = true;
-    def.textContent = 'Seleccione un establecimiento';
-    selectEl.appendChild(def);
-    opciones.forEach((nombre) => {
-      const op = document.createElement('option');
-      op.value = nombre;
-      op.textContent = nombre;
-      if (preselect && preselect === nombre) op.selected = true;
-      selectEl.appendChild(op);
-    });
-    if (!preselect && opciones.includes(current)) {
-      selectEl.value = current;
-    }
+const poblarEstablecimientosEn = (selectEl, comuna, preselect = '') => {
+  if (!selectEl) return;
+  const opciones = EST_CATALOGO[comuna] || [];
+  const current = selectEl.value;
+  selectEl.innerHTML = '';
+  const def = document.createElement('option');
+  def.value = '';
+  def.disabled = true;
+  def.selected = true;
+  def.textContent = 'Seleccione un establecimiento';
+  selectEl.appendChild(def);
+  const setOption = (nombre, selected = false) => {
+    const op = document.createElement('option');
+    op.value = nombre;
+    op.textContent = nombre;
+    if (selected) op.selected = true;
+    selectEl.appendChild(op);
   };
+  opciones.forEach((nombre) => setOption(nombre, preselect && preselect === nombre));
+  if (preselect && !opciones.includes(preselect)) {
+    // Si el establecimiento no está en catálogo, lo agregamos para mantener el valor
+    setOption(preselect, true);
+  }
+  if (!preselect && opciones.includes(current)) {
+    selectEl.value = current;
+  }
+};
 
-  const initParDependiente = (comunaEl, estEl, preselected) => {
-    if (!(comunaEl && estEl)) return;
-    let comunaIni = preselected ? buscarComunaPorEstablecimiento(preselected) : '';
-    if (comunaIni) {
-      comunaEl.value = comunaIni;
-      poblarEstablecimientosEn(estEl, comunaIni, preselected);
-    }
-    comunaEl.addEventListener('change', () => {
-      poblarEstablecimientosEn(estEl, comunaEl.value, '');
-    });
-  };
+const initParDependiente = (comunaEl, estEl, preselected) => {
+  if (!(comunaEl && estEl)) return;
+  let comunaIni = preselected ? buscarComunaPorEstablecimiento(preselected) : '';
+  if (comunaIni) {
+    comunaEl.value = comunaIni;
+    poblarEstablecimientosEn(estEl, comunaIni, preselected);
+  } else if (preselected) {
+    // Si no se encontró comuna, igual mostrar el establecimiento preseleccionado
+    poblarEstablecimientosEn(estEl, '', preselected);
+  }
+  comunaEl.addEventListener('change', () => {
+    poblarEstablecimientosEn(estEl, comunaEl.value, '');
+  });
+};
 
   // Par 1: Establecimiento APS
   initParDependiente(

@@ -90,9 +90,7 @@
                   {% else %}
                     <a class="primary" href="{{ url_for('cosam_schedule', case_id=c.id) }}">Agendar</a>
                   {% endif %}
-                  {% if current_user and current_user.is_doctor %}
-                    <a class="secondary" href="{{ url_for('formulario', prefill_from=f.id) }}">Reenviar</a>
-                  {% endif %}
+                  <a class="secondary" href="{{ url_for('formulario', prefill_from=f.id) }}">Reenviar</a>
                 </div>
                 {% if ap %}
                   <div class="actions-info">

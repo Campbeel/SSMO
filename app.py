@@ -2383,13 +2383,8 @@ def _rut_valido(rut: str) -> bool:
 @app.route("/", methods=["GET", "POST"])
 @login_required([UserRole.centro, UserRole.cosam])
 def formulario():
-    # Prefill seguro (solo médicos COSAM)
     prefill_id = request.args.get("prefill_from")
     user = getattr(g, "current_user", None)
-    if prefill_id and user and getattr(user, "role", None) == UserRole.cosam.value:
-        if not getattr(user, "is_doctor", False):
-            flash("Solo usuarios médicos pueden reenviar fichas.", "error")
-            return redirect(url_for("cosam_pacientes"))
     if request.method == "POST":
         datos = _extraer_datos_formulario(request.form)
         errores = _validar_datos(datos)
